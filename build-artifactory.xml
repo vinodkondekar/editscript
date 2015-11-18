@@ -1,0 +1,20 @@
+<project name="scribe-artifactory" default="deploy-scribe"  xmlns:artifact="antlib:org.apache.maven.artifact.ant">
+    <import file="build.xml"/>
+<!-- RTC test -->
+	<!-- COMMENT -->
+	<import file="build.xml"/>
+    <target name="deploy-scribe"  description="deploy scribe.jar to artifactory">
+        <property name="artifactory.pom" value="pom.xml" />
+        <property name="artifactory.artifact" value="scribe.jar" />
+        
+        <artifact:pom id="scribePom" file="${artifactory.pom}" />
+        
+        <artifact:install file="${bin}/${artifactory.artifact}">
+            <pom refid="scribePom" />
+        </artifact:install>
+        
+        <artifact:deploy file="${bin}/${artifactory.artifact}">
+            <pom refid="scribePom" />
+        </artifact:deploy>
+    </target>
+</project>

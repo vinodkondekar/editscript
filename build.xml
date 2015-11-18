@@ -1,0 +1,2097 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ======================================================================== -->
+<project name="Scribe" default="help" basedir="." xmlns:artifact="antlib:org.apache.maven.artifact.ant">
+	<!-- ====================================================================== -->
+	<target name="help" description="SCRIBE build.xml help page">
+		<echo message="NAME"/>
+		<echo message="  build.xml"/>
+		<echo message="USAGE"/>
+		<echo message="  ant [target]"/>
+		<echo message="DESCRIPTION"/>
+		<echo message="  this ant file coordinates the running of a build's subprocesses."/>
+		<echo message="  this is accomplished by a combination of reading the current env,"/>
+		<echo message="  hardcoded variable settings, and calls to secondary level .xml files."/>
+		<echo message="  secondary project root code inclusions are handled via svn:externals."/>
+		<echo message="OPTIONS"/>
+		<echo message="EXAMPLES"/>
+		<echo message="  ant help      (this help page)"/>
+		<echo message="  ant compile   (compile all sources)"/>
+		<echo message="  ant jarname   (compile all sources, create specific jarname)"/>
+		<echo message="  ant reall     (release engineering build)"/>
+		<echo message="FILES"/>
+		<echo message="SEE ALSO"/>
+		<echo message="BUGS"/>
+		<echo message="  1. "/>
+	</target>
+	<!-- ======================================================================== -->
+
+	<!-- global -->
+	<property file="${basedir}/mybuild.properties"/>
+	<property file="${basedir}/build.properties"/>
+	<taskdef resource="testngtasks" classpath="lib/testng-4.6-jdk14.jar" />
+	<taskdef resource="genjar.properties" classpath="lib/GenJar.jar" />
+	<taskdef name="jrunjmx" classpath="lib/jrun-ant-tasks.jar" classname="jrunx.ant.JRunJMX"/>
+	<taskdef classname="JFlex.anttask.JFlexTask" name="jflex" classpath="lib/JFlex.jar" />
+	<taskdef resource="net/sf/antcontrib/antcontrib.properties" classpath="lib/ant-contrib-1.0b3.jar"/>
+
+	<!-- Hudson Variables -->
+	<property environment="env"/>
+	<property name="buildResultID" value="${env.RTCBuildResultUUID}" />
+	<property name="rebprojectdir" value="${env.WORKSPACE}"/>
+	<property name="mergemodules" value="${env.MERGEMODULES}"/>
+	<property name="version" value="${major}.${minor}.${patch}.${env.BUILD_NUMBER}"/>
+	<propertyregex property="version" override="true" input="${version}" regexp="(\d+).(\d+).(\d+).(\d+)" select="\1.\2.\3.\4" casesensitive="false"/>
+	<!-- Make sure that the version contains 4 numbers -->
+	<!-- Check to see the value of personalBuild -->
+	<echo message="personalBuild = ${personalBuild}" />
+	<condition property="isAPersonalBuild">
+		<equals arg1="${personalBuild}" arg2="true" />
+	</condition>
+
+	<condition property="nasPublishDir" value="${personalNasProjectDir}" else="${nasprojectdir}">
+		<equals arg1="${personalBuild}" arg2="true" />
+	</condition>
+
+	<!-- ========= RTC-Specific Tasks ========== -->
+	<!-- Import the RTC build toolkit Ant tasks-->
+	<import file="${rtcBuildToolkitLocation}" optional="true"/>
+	<!-- ========== target : rtc_tasks ========== -->
+	<target name="rtc_tasks" unless = "isAPersonalBuild" >
+		<echo>
+		</echo>
+		<echo>BASEDIR: ${basedir}</echo>
+		<echo>
+		</echo>
+		<property name="newBuildLabel" value="${labelPrefix}_EDITSCRIPT-SERVER_${version}"/>
+		<!-- must create the changeSetFile so workItemPublisher can grab it. -->
+		<teamAccept repositoryAddress="${repositoryAddress}"
+                userId="${userId}"
+                passwordFile="${passwordFile}"
+                workspaceUUID="${workspaceUUID}"
+                changeSetFile="changesets.txt"
+                verbose="true" />
+		<!-- Artifact Link Publish -->
+		<artifactLinkPublisher repositoryAddress="${repositoryAddress}"
+                userId="${userId}"
+                passwordFile="${passwordFile}"
+                buildResultUUID="${buildResultID}"
+                url="file:${nasPublishDir}\scribe\${releasemajorminor}\${version}"
+                label="${nasPublishDir}\scribe\${releasemajorminor}\${version}"/>
+		<!-- Work Item Publish -->
+		<workItemPublisher repositoryAddress="${repositoryAddress}"
+                userId="${userId}"
+                passwordFile="${passwordFile}"
+                buildResultUUID="${buildResultID}"
+                filePath="changesets.txt" />
+		<!-- Build Result Publisher -->
+		<buildResultPublisher repositoryAddress="${repositoryAddress}"
+                userId="${userId}"
+                passwordFile="${passwordFile}"
+                buildResultUUID="${buildResultID}"
+                tags="${version}" 
+    			label="${newBuildLabel}" />
+	</target>
+	<!-- ========= END RTC-Specific Tasks ========== -->
+	<!-- dirs -->
+	<property name="src" value="${basedir}/src"/>
+	<property name="bin" value="${basedir}/bin"/>
+	<property name="dist" value="${basedir}/dist" />
+	<property name="deploy" value="${bin}/deploy"/>
+	<property name="scripts" value="${bin}/scripts"/>
+	<property name="lib_dir" value="${basedir}/lib"/>
+	<property name="installers" value="${basedir}/installers"/>
+	<property name="test" value="test" />
+	<property name="testconfig" value="testconfig" />
+	<property name="testbin" value="testbin" />
+	<property name="data" value="data" />
+	<property name="package" value="com/eScription" />
+	<property name="package_nuance" value="com/nuance" />
+	<property name="cludistribution" value="com/nuance/escription" />
+	<property name="clu" value="com/nuance/clu" />
+	<property name="javadoc.dest" value="javadoc"/>
+	<!-- include build-tools.xml for deficiency-reporter tool -->
+	<import file="${basedir}/build-tools.xml" as="build-tools" />
+	<!-- jar list -->
+	<property name="configurator.jar" value="configurator.jar" />
+	<property name="ebridge.jar" value="ebridge.jar" />
+	<property name="edt.jar" value="edt.jar" />
+	<property name="emon.jar" value="emon.jar" />
+	<property name="isconfig.jar" value="isconfig.jar" />
+	<property name="scribe.jar" value="scribe.jar" />
+	<property name="sendalerts.jar" value="SendAlerts.jar" />
+	<property name="jspell.jar" value="lib/jspellEvolutionServer.jar" />
+	<property name="promptApplication.jar" value="promptApplication.jar" />
+
+	<patternset id="libs">
+		<include name="jmockit-0.999.19.jar" />
+		<include name="junit_4.jar" />
+		<include name="zerog.jar" />
+		<include name="activation-1.1.jar" />
+		<include name="bcel-5.1.jar" />
+		<include name="bsh-1.3.0.jar" />
+		<include name="commons-lang-2.5.jar" />
+		<include name="dbunit-2.1.jar" />
+		<include name="dunamis.jar" />
+		<include name="GenJar.jar" />
+		<include name="gnu-regexp-1.1.4.jar" />
+		<include name="java-diff_1-0-5.jar" />
+		<include name="javasvn.jar" />
+		<include name="jawin.jar" />
+		<include name="jcert.jar" />
+		<include name="JFlex.jar" />
+		<include name="jh.jar" />
+		<include name="jhall.jar" />
+		<include name="jhbasic.jar" />
+		<include name="jmf.jar" />
+		<include name="jnet.jar" />
+		<include name="jrun.jar" />
+		<include name="jsearch.jar" />
+		<include name="jsse.jar" />
+		<include name="jtds-0.6.jar" />
+		<include name="jtds-1.2.2.jar" />
+		<include name="lucene-core-3.6.2.jar" />
+		<include name="mail.jar" />
+		<include name="mocquer.jar" />
+		<include name="pop3.jar" />
+		<include name="pvxCombo.jar" />
+		<include name="pvxDates.jar" />
+		<include name="pvxEdits.jar" />
+		<include name="servlet.jar" />
+		<include name="sound.jar" />
+		<include name="sqljdbc4-2.0.jar" />
+		<include name="svnkit.jar" />
+		<include name="testng-4.6-jdk14.jar" />
+		<include name="Una2000.jar" />
+		<include name="xml4j_1_1_16.jar" />
+		<include name="org.springframework.oxm-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.asm-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.beans-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.context-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.context.support-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.core-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.expression-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.aop-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.web-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.webmvc-3.1.1.RELEASE-nuance.jar" />
+		<include name="org.springframework.aspects-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.jdbc-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.transaction-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.test-3.1.1.RELEASE.jar" />
+		<include name="jackson-core-asl-1.9.6.jar" />
+		<include name="jackson-mapper-asl-1.9.6.jar" />
+		<include name="c3p0-0.9.1.2.jar" />
+		<include name="escription-dal-1.4.1-331.jar" />
+		<include name="escription-model-1.4.1-331.jar" />
+		<include name="escription-services-1.4.1-331.jar" />
+		<include name="escription-tracetolog4jadapter-1.4.1-331.jar" />
+		<include name="commons-logging-1.1.1.jar" />
+		<include name="log4j-1.2.17.jar" />
+		<include name="joda-time-1.6.jar" />
+		<include name="aspectjrt-1.6.11.jar" />
+		<include name="cglib-nodep-2.2.2.jar" />
+		<include name="aopalliance-1.0.jar" />
+		<include name="commons-fileupload-1.2.2.jar" />
+		<include name="commons-httpclient-3.1.jar"/>
+		<include name="commons-io-1.3.2.jar" />
+		<include name="mockito-all-1.8.5.jar" />
+		<include name="ant-contrib-1.0b3.jar" />
+		<include name="asm-3.3.1.jar" />
+		<include name="asm-util-3.0.jar" />
+		<include name="castor-1.3.jar" />
+		<include name="castor-1.3-core.jar" />
+		<include name="cglib-2.1_3.jar" />
+		<include name="cglib-full-2.0.jar" />
+		<include name="commons-beanutils-1.8.0.jar" />
+		<include name="commons-cli-1.2.jar" />
+		<!--include name="spring-aop.jar" /-->
+		<include name="svnkit-1.1.7-hudson-3.jar" />
+		<include name="trilead-ssh2-build212-hudson-5.jar" />
+		<include name="jsoup-1.6.1.jar" />
+		<include name="axiom-api-1.2.10.jar" />
+		<include name="axiom-impl-1.2.10.jar" />
+		<include name="axis2-adb-1.5.3.jar" />
+		<include name="axis2-kernel-1.5.3.jar" />
+		<include name="wsdl4j-1.6.2.jar" />
+		<include name="axis2-transport-http-1.5.3.jar" />
+		<include name="axis2-transport-local-1.5.3.jar" />
+		<include name="hapi-base-1.2.jar" />
+		<include name="hapi-structures-v23-1.2.jar" />
+		<include name="common-command-1.3.1-131.jar"/>
+		<include name="common-network-1.3.1-131.jar"/>
+		<include name="common-logging-1.3.1-131.jar"/>
+		<include name="common-hl7-1.3.1-55.jar" />
+		<include name="common-util-1.3.1-131.jar" />
+		<include name="footPedal.jar" />
+		<include name="editscript-utility.jar" />
+		<include name="quartz-2.2.0.jar"/>
+		<include name="quartz-jobs-2.2.0.jar"/>
+		<include name="runtime-0.4.1.5.jar"/>
+		<include name="scheduler-model-1.0.0-42.jar"/>
+		<include name="scheduler-service-1.0.0-42.jar"/>
+		<include name="ealert-dal-1.0.0-154.jar"/>
+		<include name="ealert-executor-1.0.0-154.jar"/>
+		<include name="ealert-model-1.0.0-154.jar"/>
+		<include name="ealert-service-1.0.0-154.jar"/>
+		<include name="ealert-web-1.0.0-154.jar"/>
+		<include name="sender-model-1.0.0-26.jar"/>
+		<include name="sender-service-1.0.0-26.jar"/>
+		<include name="velocity-1.7.jar"/>
+		<include name="velocity-tools-2.0.jar"/>
+		<include name="commons-digester-1.8.jar"/>
+		<include name="commons-collections-3.2.1.jar"/>
+		<include name="oval-1.81.jar"/>
+	</patternset>
+
+	<patternset id="junit_libs">
+		<patternset refid="libs"/>
+		<include name="servlet-api-2.5.jar" />
+		<exclude name="jrun.jar" />
+	</patternset>
+
+	<patternset id="asr_classes">
+		<!-- OBSOLETE??? -->
+		<include name="${package}/collator/*.class" />
+		<include name="${package}/recognizer/*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/tools/*.class" />
+		<include name="${package}/util/*.class" />
+	</patternset>
+
+	<patternset id="configurator_classes">
+		<include name="${package}/configurator/*.class" />
+		<include name="${package}/configurator/**/*.class" />
+		<include name="${package}/data/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/emon/*.class" />
+		<include name="${package}/emon/**/*.class" />
+		<include name="${package}/recognizer/*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/scribe/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<!-- repeated , why (tools/) -->
+	</patternset>
+
+	<patternset id="ebridge_classes">
+		<include name="${package}/ebridge/*.class" />
+		<include name="${package}/ebridge/**/*.class" />
+		<include name="${package}/data/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/emon/*.class" />
+		<include name="${package}/emon/**/*.class" />
+		<include name="${package}/recognizer/DialogListener.class" />
+		<include name="${package}/recognizer/FilenameExtensionFilter.class" />
+		<include name="${package}/recognizer/ConfigurationException.class" />
+		<include name="${package}/recognizer/Login*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/scribe/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/util/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<!-- repeated again, why (tools/) -->
+	</patternset>
+
+	<patternset id="edt_classes">
+		<include name="version/version.properties" />
+		<include name="conf/audioConversionContext.xml" />
+		<include name="conf/edtJaxbMarshaller.xml" />
+		<include name="${package}/audioConversion/*.class" />
+		<include name="${package}/audioConversion/**/*.class" />
+		<include name="${package}/data/DataType*.class" />
+		<include name="${package}/data/xmladapters/*.class"/>
+		<include name="${package}/emon/LimitedDocument.class" />
+		<include name="${package}/emon/Validator.class" />
+		<include name="${package}/emon/MessageDialog.class" />
+		<include name="${package}/emon/InternalProcessingException.class" />
+		<include name="${package}/emon/ConfigurationException.class" />
+		<include name="${package}/emon/XMLColumn.class" />
+		<include name="${package}/emon/XMLComboBox.class" />
+		<include name="${package}/emon/XMLComboBox$1.class" />
+		<include name="${package}/emon/XMLTableDuration.class" />
+		<include name="${package}/emon/XMLTableList.class" />
+		<include name="${package}/emon/XMLTableTargetTAT.class" />
+		<include name="${package}/emon/workType/LimitedLengthString.class" />
+		<include name="${package}/emon/workType/LimitedLengthStringEighty.class" />
+		<include name="${package}/emon/workType/LimitedLengthStringSixteen.class" />
+		<include name="${package}/emon/workType/LimitedLengthStringTwentyFive.class" />
+		<include name="${package}/emon/SplashScreen.class" />
+		<include name="${package}/emon/AdvancedOptionsDialog.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/gateway/clu/**/*.class" />
+		<include name="${package}/gateway/*.class" />
+		<include name="${package}/gateway/filefilters/*.class" />
+		<include name="${package}/gateway/validation/CustomValidator.class" />
+		<include name="${package}/data/distribution/**/*.class" />
+		<include name="${package}/data/model/common/jaxb/**/*.class" />
+		<include name="${package}/data/model/thirdpartyaudio/**/*.class" />
+		<include name="${package}/data/*.class" />
+		<include name="${package}/hl7/*.class" />
+		<include name="${package}/recognizer/*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/scribe/services/*.class" />
+		<include name="${package}/scribe/distribution/*.class" />
+		<include name="${package}/scribe/datetime/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/util/timezone/*.class" />
+		<include name="${package}/util/datetime/*.class" />
+		<include name="${package}/tools/*.class" />
+		<include name="${package}/tools/**/*.class" />
+		<include name="${package}/tools/xsl/*.xsl"/>
+		<include name="${package}/isconfig/*.class" />
+		<include name="${package}/tools/RestartClient/*.class" />
+		<include name="${package}/data/dao/**/*.class" />
+		<include name="${package_nuance}/escription/**/*.class"/>
+		<include name="${package_nuance}/clu/**/*.class"/>
+	</patternset>
+
+	<patternset id="efaxdir_classes">
+		<include name="${package}/tools/GetEFaxDir.class" />
+		<include name="${package}/tools/scribeConnect/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+	</patternset>
+
+	<patternset id="emon_classes">
+		<include name="${package}/data/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/emon/*.class" />
+		<include name="${package}/emon/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/scribe/Distribution*.class" />
+		<include name="${package}/scribe/context/*.class" />
+		<include name="${package}/scribe/dictationsearch/*.class" />
+		<include name="${package}/scribe/dictation/**/*.class"/>
+		<include name="${package}/scribe/index/**/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/util/**/*.class" />
+		<include name="${package}/recognizer/*.class" />
+		<include name="${package}/gateway/EditScriptTemplateGridColumn.class" />
+		<include name="${package}/gateway/EditScriptHeaderField.class" />
+		<include name="${package}/gateway/GatewayException.class" />
+		<include name="${package}/gateway/HL7FieldTypeSupplier.class" />
+		<include name="${package}/gateway/AutoInstaller.class" />
+		<include name="${package}/gateway/VersionDescriptor.class" />
+		<include name="${package}/gateway/OrderGroupDataRetriever.class" />
+		<include name="${package}/gateway/OrderDataRetriever.class" />
+		<include name="${package}/gateway/HL7DataRetriever.class" />
+		<include name="${package}/tools/RestartClient/RestartThread.class" />
+		<include name="${package_nuance}/escription/distribution/model/**/*.class" />
+		<include name="${package_nuance}/escription/scribe/model/**/*.class" />
+		<exclude name="${package}/emon/EMonSwitch.class" />
+	</patternset>
+
+	<patternset id="emon_autoUpgrade_classes">
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/emon/*.class" />
+		<include name="${package}/emon/uiLibrary/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+	</patternset>
+
+	<patternset id="getserverlist_classes">
+		<include name="${package}/tools/GetServerList.class" />
+		<include name="${package}/tools/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/tools/scribeConnect/**/*.class" />
+	</patternset>
+
+	<patternset id="import_tool_classes">
+		<include name="${package}/data/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/emon/*.class" />
+		<include name="${package}/emon/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/util/**/*.class" />
+		<include name="${package}/recognizer/DialogListener.class" />
+		<include name="${package}/recognizer/FilenameExtensionFilter.class" />
+		<include name="${package}/recognizer/ConfigurationException.class" />
+		<include name="${package}/tools/*.class" />
+		<include name="${package}/tools/**/*.class" />
+		<include name="${package}/tools/xsl/*.xsl"/>
+	</patternset>
+
+	<patternset id="isconfig_classes">
+		<include name="${package}/data/CodePromptProperties.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/util/datetime/*.class" />
+		<include name="${package}/isconfig/*.class" />
+		<include name="${package}/isconfig/**/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/scribe/DBAccess.class" />
+		<include name="${package}/scribe/DBConnection.class" />
+		<include name="${package}/scribe/DBRow.class" />
+		<include name="${package}/scribe/DBRowSet.class" />
+		<include name="${package}/emon/EMonVersion.class" />
+		<!-- how is this used -->
+		<include name="${package}/emon/LimitedDocument.class" />
+		<include name="${package}/emon/Validator.class" />
+		<include name="${package}/emon/AdvancedOptionsDialog.class" />
+		<include name="${package}/emon/MessageDialog.class" />
+		<include name="${package}/emon/uiLibrary/TextFieldExcludeExtendedChars.class" />
+		<include name="${package}/emon/uiLibrary/ExcludeExtendedCharsDocument.class" />
+		<include name="${package}/isconfig/promptApplication/c_code/wavutils.dll" />
+		<include name="${package}/isconfig/promptApplication/c_code/normalize.exe" />
+		<include name="${package}/isconfig/promptApplication/images/*" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/ebridge/EBridge.class" />
+	</patternset>
+
+	<patternset id="promptApplication_classes">
+		<include name="${package}/isconfig/promptApplication/**/*.class" />
+		<include name="${package}/isconfig/promptApplication/images/*" />
+	</patternset>
+
+	<!-- The following patternset is used for determining what files from the lib directory -->
+	<!-- will be part of the scribe dependencies zip file. Update this patternset for -->
+	<!-- any file changes, adds and/or deletes to the scribe dependencies zip file. The build -->
+	<!-- generates the the scribe dependencies zip file based on this list -->
+	<patternset id="scribe_dependencies_libs">
+		<include name="activation-1.1.jar" />
+		<include name="bsh-1.3.0.jar" />
+		<include name="castor-1.3-core.jar" />
+		<include name="castor-1.3.jar" />
+		<include name="commons-beanutils-1.8.0.jar" />
+		<include name="gnu-regexp-1.1.4.jar" />
+		<include name="jcert.jar" />
+		<include name="jhall.jar" />
+		<include name="jmf.jar" />
+		<include name="jnet.jar" />
+		<include name="jsse.jar" />
+		<include name="lucene-core-3.6.2.jar" />
+		<include name="mail.jar" />
+		<include name="org.springframework.asm-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.beans-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.context-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.context.support-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.core-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.expression-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.oxm-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.aop-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.web-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.webmvc-3.1.1.RELEASE-nuance.jar" />
+		<include name="cglib-nodep-2.2.2.jar" />
+		<include name="aopalliance-1.0.jar" />
+		<include name="commons-fileupload-1.2.2.jar" />
+		<include name="commons-io-1.3.2.jar" />
+		<include name="pop3.jar" />
+		<include name="pvxCombo.jar" />
+		<include name="pvxDates.jar" />
+		<include name="pvxEdits.jar" />
+		<include name="xml4j_1_1_16.jar" />
+		<include name="zerog.jar" />
+		<include name="jsoup-1.6.1.jar" />
+		<include name="escription-services-1.4.1-331.jar" />
+		<include name="escription-dal-1.4.1-331.jar" />
+		<include name="escription-model-1.4.1-331.jar" />
+		<include name="escription-tracetolog4jadapter-1.4.1-331.jar" />
+		<include name="sqljdbc4-2.0.jar" />
+		<include name="log4j-1.2.17.jar" />
+		<include name="commons-lang-2.5.jar" />
+		<include name="commons-logging-1.1.1.jar" />
+		<include name="c3p0-0.9.1.2.jar" />
+		<include name="common-command-1.3.1-131.jar"/>
+		<include name="common-network-1.3.1-131.jar"/>
+		<include name="common-logging-1.3.1-131.jar"/>
+		<include name="common-hl7-1.3.1-55.jar" />
+		<include name="common-util-1.3.1-131.jar" />
+		<include name="common-transform-1.3.1-131.jar" />
+		<include name="joda-time-1.6.jar" />
+		<include name="org.springframework.aspects-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.jdbc-3.1.1.RELEASE.jar" />
+		<include name="org.springframework.transaction-3.1.1.RELEASE.jar" />
+		<include name="aspectjrt-1.6.11.jar" />
+		<include name="axiom-api-1.2.10.jar" />
+		<include name="axiom-impl-1.2.10.jar" />
+		<include name="axis2-adb-1.5.3.jar" />
+		<include name="axis2-kernel-1.5.3.jar" />
+		<include name="wsdl4j-1.6.2.jar" />
+		<include name="axis2-transport-http-1.5.3.jar" />
+		<include name="axis2-transport-local-1.5.3.jar" />
+		<include name="commons-httpclient-3.1.jar"/>
+		<include name="XmlSchema-1.4.3.jar" />
+		<include name="neethi-2.0.4.jar" />
+		<include name="httpcore-4.0.jar" />
+		<include name="commons-codec-1.3.jar" />
+		<include name="xml-apis.jar" />
+		<include name="jackson-core-asl-1.9.6.jar" />
+		<include name="jackson-mapper-asl-1.9.6.jar" />
+		<include name="quartz-2.2.0.jar"/>
+		<include name="quartz-jobs-2.2.0.jar"/>
+		<include name="slf4j-log4j12-1.6.6.jar"/>
+		<include name="slf4j-api-1.6.6.jar"/>
+		<include name="oval-1.81.jar"/>
+		<include name="commons-lang3-3.1.jar"/>
+		<include name="runtime-0.4.1.5.jar"/>
+		<include name="ealert-dal-1.0.0-154.jar"/>
+		<include name="ealert-executor-1.0.0-154.jar"/>
+		<include name="ealert-model-1.0.0-154.jar"/>
+		<include name="ealert-service-1.0.0-154.jar"/>
+		<include name="ealert-web-1.0.0-154.jar"/>
+		<include name="sender-model-1.0.0-26.jar"/>
+		<include name="sender-service-1.0.0-26.jar"/>
+		<include name="scheduler-model-1.0.0-42.jar"/>
+		<include name="scheduler-service-1.0.0-42.jar"/>
+		<include name="velocity-1.7.jar"/>
+		<include name="velocity-tools-2.0.jar"/>
+		<include name="commons-digester-1.8.jar"/>
+		<include name="commons-collections-3.2.1.jar"/>
+	</patternset>
+
+	<patternset id="scribe_files">
+		<include name="${package_nuance}/escription/**/*.class" />
+		<include name="${package}/scribe/**/*.class" />
+		<include name="${package}/util/**/*.class" />
+		<include name="${package}/gateway/**/*.class" />
+		<include name="${package}/hl7/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/collator/*.class" />
+		<include name="${package}/data/**/*.class" />
+		<include name="${package}/isconfig/**/*.class" />
+		<include name="${package}/dataCenter/*.class" />
+		<include name="${package}/pool/**/*.class" />
+		<include name="${package}/rules/**/*.class" />
+		<include name="${package}/audioConversion/converter/*.class" />
+		<include name="${package}/scribe/fileupload/*.xml" />
+		<include name="${package}/scribe/xslt/*.xsl" />
+		<include name="${cludistribution}/distribution/**/*.class" />
+		<include name="${clu}/**/*.class" />
+		<include name="xsl/*.xsl" />
+		<include name="conf/**/*.xml" />
+		<include name="conf/**/*.properties" />
+
+	</patternset>
+	<patternset id="logmover_files">
+		<include name="${package}/tools/runEnvironment/*.class" />
+		<include name="${package}/tools/DatabaseLogin.class"/>
+		<include name="${package}/tools/Environment.class"/>
+		<include name="${package}/util/Trace.class" />
+		<include name="${package}/util/XMLDocument.class" />
+		<include name="${package}/util/XMLNodeEnumerator.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/scribe/DBAccess.class" />
+		<include name="${package}/scribe/DBConnection.class" />
+		<include name="${package}/scribe/DBController.class" />
+		<include name="${package}/scribe/DBRow.class" />
+		<include name="${package}/scribe/DBRowSet.class" />
+		<include name="${package}/scribe/Pool.class" />
+		<include name="${package}/scribe/Poolable.class" />
+	</patternset>
+	<patternset id="SendAlerts_classes">
+		<include name="${package}/gateway/*.class" />
+		<include name="${package}/scribe/*.class" />
+		<include name="${package}/scribeConnect/*.class" />
+		<include name="${package}/util/*.class" />
+		<include name="${package}/recognizer/*.class" />
+	</patternset>
+
+	<patternset id="deficiency_reporter_tool_jars">
+		<include name="${dist}/deficiency-reporter.jar" />
+		<include name="Una2000.jar" />
+		<include name="escription-dal-1.4.1-331.jar" />
+	</patternset>
+
+	<!-- ========== target: get_audio_edt_util_versions ======== -->
+	<target name="get_audio_edt_util_versions" description="print out AUDIO_UTIL and EDT_UTIL versions being used in this build">
+		<loadfile
+		property="audio_util_version"
+			srcFile="${nasprojectdir}/audio_util/${major}_${minor}/latest/this_build_version.txt"
+		failonerror="true"/>
+		<loadfile
+		property="edt_util_version"
+			srcFile="${nasprojectdir}/edt_util/${major}_${minor}/latest/this_build_version.txt"
+		failonerror="true"/>
+		<echo message="${audio_util_version}" />
+		<echo message="${edt_util_version}" />
+	</target>
+
+	<!-- ========== target : analyzer ========== -->
+	<target name="analyzer" unless="skipcompile" description="Creates the analyzer for Lucene???">
+		<jflex file="src/com/eScription/scribe/analyzer/NetScriptTokenizerImpl.jflex"/>
+	</target>
+	<!-- ========== target : asrjar - OBSOLETE??? ========== -->
+	<target name="asrjar" depends="rmic" description="bins the AS Client JAR.">
+		<antcall target="jar">
+			<param name="classes" value="asr_classes" />
+			<param name="jarname" value="asClient_java.jar" />
+		</antcall>
+	</target>
+	<!-- ====================================================================== -->
+	<target name="chk-version" depends="get_audio_edt_util_versions" description="version check">
+		<!-- check version number -->
+		<fail>
+			Incorrect major.minor version number: ${major}.${minor} should be ${major.cross-check}.${minor.cross-check} .
+			<condition>
+				<or>
+					<not>
+						<equals arg1="${major}" arg2="${major.cross-check}"/>
+					</not>
+					<not>
+						<equals arg1="${minor}" arg2="${minor.cross-check}"/>
+					</not>
+				</or>
+			</condition>
+		</fail>
+		<!-- Updating EMonVersion.java File with the correct version number -->
+		<echo message="Updating EMonVersion.java version..." />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java"
+			match="MAJOR_VERSION\s+=.*;"
+			replace="MAJOR_VERSION = ${major};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java"
+			match="MINOR_VERSION\s+=.*;"
+			replace="MINOR_VERSION = ${minor};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java"
+			match="PATCH_LEVEL\s+=.*;"
+			replace="PATCH_LEVEL = ${patch};"
+			byline="true" />
+		<echo message="EMonVersion.java version Update Complete..." />
+
+		<!-- Updating GatewayVersion.java File with the correct version number -->
+		<echo message="Updating GatewayVersion.java version..." />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java"
+			match="versionNumberMajor\s+=.*;"
+			replace="versionNumberMajor = ${major};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java"
+			match="versionNumberMinor\s+=.*;"
+			replace="versionNumberMinor = ${minor};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java"
+			match="versionNumberPatch\s+=.*;"
+			replace="versionNumberPatch = ${patch};"
+			byline="true" />
+		<echo message="GatewayVersion.java version Update Complete..." />
+
+		<!-- Updating ISDVRVersion.java File with the correct version number -->
+		<echo message="Updating ISDVRVersion.java version..." />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java"
+			match="VERSION_NUMBER_MAJOR\s+=.*;"
+			replace="VERSION_NUMBER_MAJOR = ${major};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java"
+			match="VERSION_NUMBER_MINOR\s+=.*;"
+			replace="VERSION_NUMBER_MINOR = ${minor};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java"
+			match="VERSION_NUMBER_PATCH\s+=.*;"
+			replace="VERSION_NUMBER_PATCH = ${patch};"
+			byline="true" />
+		<echo message="ISDVRVersion.java version Update Complete..." />
+
+		<!-- Updating ScribeVersion.java File with the correct version number -->
+		<echo message="Updating ScribeVersion.java version..." />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/scribe/ScribeVersion.java"
+			match="MAJOR_VERSION\s+=.*;"
+			replace="MAJOR_VERSION = ${major};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/scribe/ScribeVersion.java"
+			match="MINOR_VERSION\s+=.*;"
+			replace="MINOR_VERSION = ${minor};"
+			byline="true" />
+		<replaceregexp file="${rebprojectdir}/src/com/eScription/scribe/ScribeVersion.java"
+			match="PATCH_LEVEL\s+=.*;"
+			replace="PATCH_LEVEL = ${patch};"
+			byline="true" />
+		<echo message="ScribeVersion.java version Update Complete..." />
+	</target>
+	<!-- ========== target : update-version ========== -->
+	<target name="update-version" description="Updates Version Number">
+		<echo message="Changing EMonVersion.java version to ${version}...." />
+		<copy file="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java" tofile="${rebprojectdir}/src/com/eScription/emon/EMonVersionTemplate.java" >
+			<filterchain>
+				<replacetokens>
+					<token key="MAJOR_NUMBER" value="${major}"/>
+					<token key="MINOR_NUMBER" value="${minor}"/>
+					<token key="PATCH_NUMBER" value="${patch}"/>
+				</replacetokens>
+			</filterchain>
+		</copy>
+		<delete file="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java" />
+		<copy file="${rebprojectdir}/src/com/eScription/emon/EMonVersionTemplate.java" tofile="${rebprojectdir}/src/com/eScription/emon/EMonVersion.java" />
+		<delete file="${rebprojectdir}/src/com/eScription/emon/EMonVersionTemplate.java" />
+
+		<echo message="Changing GatewayVersion.java version to ${version}...." />
+		<copy file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java" tofile="${rebprojectdir}/src/com/eScription/gateway/GatewayVersionTemplate.java" >
+			<filterchain>
+				<replacetokens>
+					<token key="MAJOR_NUMBER" value="${major}"/>
+					<token key="MINOR_NUMBER" value="${minor}"/>
+					<token key="PATCH_NUMBER" value="${patch}"/>
+				</replacetokens>
+			</filterchain>
+		</copy>
+		<delete file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java" />
+		<copy file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersionTemplate.java" tofile="${rebprojectdir}/src/com/eScription/gateway/GatewayVersion.java" />
+		<delete file="${rebprojectdir}/src/com/eScription/gateway/GatewayVersionTemplate.java" />
+
+		<echo message="Changing ISDVRVersion.java version to ${version}...." />
+		<copy file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java" tofile="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersionTemplate.java" >
+			<filterchain>
+				<replacetokens>
+					<token key="MAJOR_NUMBER" value="${major}"/>
+					<token key="MINOR_NUMBER" value="${minor}"/>
+					<token key="PATCH_NUMBER" value="${patch}"/>
+				</replacetokens>
+			</filterchain>
+		</copy>
+		<delete file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java" />
+		<copy file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersionTemplate.java" tofile="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersion.java" />
+		<delete file="${rebprojectdir}/src/com/eScription/gateway/ISDVRVersionTemplate.java" />
+
+		<echo message="Changing Common.java version to ${version}...." />
+		<copy file="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/Common.java" tofile="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/CommonTemplate.java" >
+			<filterchain>
+				<replacetokens>
+					<token key="MAJOR_NUMBER" value="${major}"/>
+					<token key="MINOR_NUMBER" value="${minor}"/>
+					<token key="PATCH_NUMBER" value="${patch}"/>
+				</replacetokens>
+			</filterchain>
+		</copy>
+		<delete file="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/Common.java" />
+		<copy file="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/CommonTemplate.java" tofile="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/Common.java" />
+		<delete file="${rebprojectdir}/src/com/eScription/isconfig/promptApplication/prompter/CommonTemplate.java" />
+
+	</target>
+	<!-- ========== target : clean ========== -->
+	<target name="clean" description="Deletes derived resources.">
+		<delete dir="${bin}" quiet="true" />
+		<delete dir="${testbin}" quiet="true" />
+		<delete dir="${javadoc.dest}" quiet="true" />
+		<mkdir dir="${bin}" />
+	</target>
+	<!-- ========== target : compile ========== -->
+	<target name="compile" unless="skipcompile" depends="analyzer" description="Compiles the source files.">
+		<mkdir dir="${bin}" />
+		<javac srcdir="${src}" destdir="${bin}" includeantruntime="true" fork="true" compiler="modern" executable="javac" debug="on" deprecation="off" memoryMaximumSize="512m">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</javac>
+		<copy todir="${bin}/xsl">
+			<fileset dir="${src}/${package}/scribe/xsl">
+				<include name="*.xsl" />
+			</fileset>
+		</copy>
+		<copy todir="${bin}/${package}/isconfig/promptApplication/c_code">
+			<fileset dir="${src}/${package}/isconfig/promptApplication/c_code">
+				<include name="*.dll" />
+			</fileset>
+		</copy>
+		<copy todir="${bin}/${package}/isconfig/promptApplication/images">
+			<fileset dir="${src}/${package}/isconfig/promptApplication/images">
+				<include name="*.gif" />
+				<include name="*.png" />
+			</fileset>
+		</copy>
+	</target>
+	<!-- ========== target : configurator ========== -->
+	<target name="configuratorjar" depends="rmic" description="bins configurator.jar">
+		<antcall target="jar">
+			<param name="classes" value="configurator_classes" />
+			<param name="jarname" value="${configurator.jar}" />
+		</antcall>
+	</target>
+	<!-- ========== target : copyBuildLogToNAS =========-->
+	<target name="copyBuildLogToNAS" description="Copy the build log to the NAS">
+		<echo>Copying build log to the ${nasPublishDir}/scribe/${releasemajorminor}/${version} directory</echo>
+		<copy file="${hostname}\jobs\${env.JOB_NAME}\builds\${env.BUILD_ID}\log" 
+		todir="${nasPublishDir}\scribe\${releasemajorminor}\${version}" overwrite="false" failonerror="false"/>
+	</target>
+	<!-- ========== target : copyConfigFiles ========== -->
+	<target name="copyConfigFiles" unless="skipcompile">
+		<echo>Copying Castor mapping files to bin directory</echo>
+		<copy file="src/com/eScription/scribe/fileupload/nuanceRadiology/nuanceRadiology-mapping.xml"
+             todir="${bin}/com/eScription/scribe/fileupload/" overwrite="true"/>
+		<copy todir="${bin}/conf">
+			<fileset dir="${src}/conf">
+				<include name="**/*.xml"/>
+				<include name="**/*.properties" />
+			</fileset>
+		</copy>
+	</target>
+	<!-- ========== target : copyEDTConfigFiles ========== -->
+	<target name="copyEDTConfigFiles" >
+		<copy file="src/conf/audioConversionContext.xml"
+            todir="${bin}/conf/" overwrite="true"/>
+		<copy file="src/conf/edtJaxbMarshaller.xml"
+    	            todir="${bin}/conf/" overwrite="true"/>
+	</target>
+	<!-- ========== target : copyXslFiles ========== -->
+	<target name="copyXslFiles" >
+		<echo>Copying XSL files to bin directory</echo>
+		<copy file="src/com/eScription/scribe/xslt/cda2wal.xsl" 
+            todir="${bin}/com/eScription/scribe/xslt/" overwrite="true"/>
+		<copy file="src/com/eScription/scribe/xslt/cda2txt.xsl" 
+                todir="${bin}/com/eScription/scribe/xslt/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperPostProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperPreProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDMEPostProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDMEPreProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDMMRPostProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDMMRPreProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDM360RecorderPreProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+		<copy file="src/com/eScription/tools/xsl/ConvertAudioHelperDM360RecorderPostProcess.xsl" 
+                todir="${bin}/com/eScription/tools/xsl/" overwrite="true"/>
+	</target>
+	<!-- ========== target : ebridgejar ========== -->
+	<target name="ebridgejar" depends="rmic" description="bins ebridge.jar">
+		<antcall target="jar">
+			<param name="classes" value="ebridge_classes" />
+			<param name="jarname" value="${ebridge.jar}" />
+		</antcall>
+	</target>
+
+	<!-- ========== target : genVersionProperties ========== -->
+	<target name="genVersionProperties" depends="">
+		<propertyfile file="version.properties">
+			<entry key="build" value="${version}"/>
+		</propertyfile>
+		<mkdir dir="${bin}/version/" />
+		<copy todir="${bin}/version/">
+			<fileset dir="">
+				<include name="version.properties" />
+			</fileset>
+		</copy>
+	</target>
+
+	<pathconvert property="edt_classpath" pathsep=" ">
+		<mapper>
+			<chainedmapper>
+				<!-- remove absolute path -->
+				<flattenmapper />
+			</chainedmapper>
+		</mapper>
+		<path>
+
+			<!-- lib.home contains all jar files, in several subdirectories -->
+			<fileset dir="${lib_dir}">
+				<include name="activation-1.1.jar" />
+				<include name="mail.jar" />
+				<include name="jsse.jar" />
+				<include name="jnet.jar" />
+				<include name="jcert.jar" />
+				<include name="xml4j_1_1_16.jar" />
+				<include name="jtds-1.2.2.jar" />
+				<include name="org.springframework.asm-3.1.1.RELEASE.jar" />
+				<include name="org.springframework.beans-3.1.1.RELEASE.jar" />
+				<include name="org.springframework.context-3.1.1.RELEASE.jar" />
+				<include name="org.springframework.core-3.1.1.RELEASE.jar" />
+				<include name="org.springframework.expression-3.1.1.RELEASE.jar" />
+				<include name="org.springframework.oxm-3.1.1.RELEASE.jar" />
+				<include name="woden-api-1.0M8.jar" />
+				<include name="woden-impl-dom-1.0M8.jar" />
+				<include name="xercesImpl-2.8.1.jar" />
+				<include name="xml-apis.jar" />
+				<include name="axiom-api-1.2.10.jar" />
+				<include name="axiom-impl-1.2.10.jar" />
+				<include name="axis2-adb-1.5.3.jar" />
+				<include name="axis2-transport-http-1.5.3.jar" />
+				<include name="axis2-transport-local-1.5.3.jar" />
+				<include name="common-hl7-1.3.1-55.jar" />
+				<include name="axis2-kernel-1.5.3.jar" />
+				<include name="wsdl4j-1.6.2.jar" />
+				<include name="XmlSchema-1.4.3.jar" />
+				<include name="neethi-2.0.4.jar" />
+				<include name="commons-httpclient-3.1.jar" />
+				<include name="httpcore-4.0.jar" />
+				<include name="commons-codec-1.3.jar" />
+				<include name="commons-lang-2.5.jar" />
+				<include name="commons-logging-1.1.1.jar" />
+			</fileset>
+		</path>
+	</pathconvert>
+	<!-- ========== target : edtjar ========== -->
+	<target name="edtjar" depends="genVersionProperties,rmic,copyEDTConfigFiles,copyXslFiles" description="bins edt.jar and SendAlerts.jar">
+		<antcall target="jarwithclasspath">
+			<param name="classes" value="edt_classes" />
+			<param name="jarname" value="${edt.jar}" />
+			<param name="manifest.classpath" value="${edt_classpath}"/>
+		</antcall>
+		<antcall target="jar">
+			<param name="classes" value="SendAlerts_classes" />
+			<param name="jarname" value="${sendalerts.jar}" />
+		</antcall>
+	</target>
+	<!-- ========== target : efaxdirjar ========== -->
+	<target name="efaxdirjar" depends="clean,compile">
+		<!-- clean destroys bin, rmic?) -->
+		<antcall target="jar">
+			<param name="classes" value="efaxdir_classes" />
+			<param name="jarname" value="EFaxDirJar.jar" />
+		</antcall>
+	</target>
+	<!-- ========== target : emonAutoUpgradejar ========== -->
+	<target name="emonAutoUpgradejar" description="bins the auto updater for EMon.">
+		<!-- rmic? -->
+		<property name="javaName" value="EMon.java" />
+		<property name="jarName" value="emonForAutoUpgrade.jar" />
+		<property name="emonPath" value="src/com/eScription/emon" />
+		<copy file="${emonPath}/${javaName}" todir="." overwrite="yes" />
+		<copy file="emonForAutoUpgrade/${emonPath}/${javaName}" tofile="${emonPath}/${javaName}" overwrite="yes" />
+		<antcall target="rmic" />
+		<antcall target="jar">
+			<param name="classes" value="emon_autoUpgrade_classes" />
+			<param name="jarname" value="${jarName}" />
+		</antcall>
+		<move file="./${javaName}" todir="${emonPath}" overwrite="yes" />
+		<copy file="bin/${jarName}" todir="emonForAutoUpgrade/lib" overwrite="yes" />
+	</target>
+	<!-- ========== target : emonjar ========== -->
+	<target name="emonjar" depends="rmic" description="bins emon.jar">
+		<antcall target="jar">
+			<param name="classes" value="emon_classes" />
+			<param name="jarname" value="${emon.jar}" />
+		</antcall>
+	</target>
+	<!-- ========== target: generate_deficiency_reporter_zip ========= -->
+	<target name="generate_deficiency_reporter_zip" depends="build-tools.deficiency-reporter">
+		<copy todir="${basedir}/dist" flatten="true">
+			<fileset dir="${basedir}/lib">
+				<patternset refid="deficiency_reporter_tool_jars"/>
+			</fileset>
+		</copy>
+		<zip destfile="${basedir}/deficiency-reporter-assembly-${major}.${minor}.${patch}.${env.BUILD_NUMBER}.zip" basedir="${basedir}/dist"/>
+		<copy file="${basedir}/deficiency-reporter-assembly-${major}.${minor}.${patch}.${env.BUILD_NUMBER}.zip" todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}"/>
+	</target>
+	<!-- ========== target : getRevisionNumber ========== -->
+	<target name="getRevisionNumber">
+		<loadfile property="revision.number" srcFile="./.svn/entries">
+			<filterchain>
+				<headfilter lines="1" skip="3"/>
+				<deletecharacters chars="\n"/>
+			</filterchain>
+		</loadfile>
+	</target>
+	<!-- ========== target : getserverlistjar ========== -->
+	<target name="getserverlistjar" depends="compile">
+		<!--  rmic? -->
+		<antcall target="jar">
+			<param name="classes" value="getserverlist_classes" />
+			<param name="jarname" value="GetServerList.jar" />
+		</antcall>
+	</target>
+	<!-- ========== target : import_tooljar ========== -->
+	<target name="import_tooljar" depends="rmic" description="bins import_tool.jar">
+		<antcall target="jar">
+			<param name="classes" value="import_tool_classes" />
+			<param name="jarname" value="import_tool.jar" />
+		</antcall>
+	</target>
+
+	<!-- ========== target : installers ========== -->
+	<target name="installers" description="generate installation installshield packages">
+		<!--echo message="iscmdbld is ${ISCmdBld}"/>
+		<exec executable="${ISCmdBld}" dir="${installers}">
+			<arg line="-p EBRIDGE.ism -y ${version} -a Release -r Output -o ${merge_modules}"/>
+		</exec>
+		<available file="${rebprojectdir}/installers/EBRIDGE/Release/Output/LogFiles/error" property="installshield_fail"/>
+		<fail if="installshield_fail" message="EBRIDGE installation InstallShield package generation FAILED!!!"/-->
+
+		<exec executable="${ISCmdBld}" dir="${installers}">
+			<arg line="-p EDT.ism -y ${version} -o ${merge_modules}"/>
+			<!-- different IS template model -->
+		</exec>
+		<available file="${rebprojectdir}/installers/EDT/Release/Output/LogFiles/error" property="installshield_fail"/>
+		<fail if="installshield_fail" message="EDT installation InstallShield package generation FAILED!!!"/>
+		<property name="SigningReturnCode" value="0"/>
+		<exec executable="${ISSignTool}" 
+			  dir="${installers}/EDT/Release/Output/DiskImages/DISK1" 
+			  resultproperty="SigningReturnCode" 
+			  failonerror="false">
+			<arg line="verify /pa /v /tw setup.exe"/>
+		</exec>
+		<echo>SignTool.exe return code for EDT: ${SigningReturnCode}</echo>
+		<fail message="SignTool.exe exited non-zero">
+			<condition>
+				<not>
+					<equals arg1="${SigningReturnCode}" arg2="0"/>
+				</not>
+			</condition>
+		</fail>
+
+		<exec executable="${ISCmdBld}" dir="${installers}">
+			<arg line="-p EMON.ism -y ${version} -a Release -r Output -o ${merge_modules}"/>
+		</exec>
+		<available file="${rebprojectdir}/installers/EMON/Release/Output/LogFiles/error" property="installshield_fail"/>
+		<fail if="installshield_fail" message="EMON installation InstallShield package generation FAILED!!!"/>
+		<exec executable="${ISSignTool}" 
+			  dir="${installers}/EMON/Release/Output/DiskImages/DISK1" 
+			  resultproperty="SigningReturnCode" 
+			  failonerror="false">
+			<arg line="verify /pa /v /tw setup.exe"/>
+		</exec>
+		<echo>SignTool.exe return code for EMON: ${SigningReturnCode}</echo>
+		<fail message="SignTool.exe exited non-zero">
+			<condition>
+				<not>
+					<equals arg1="${SigningReturnCode}" arg2="0"/>
+				</not>
+			</condition>
+		</fail>
+
+
+		<!--exec executable="${ISCmdBld}" dir="${installers}">
+			<arg line="-p INTELLISCRIPTDVR.ism -y ${version} -a Release -r Output -o ${merge_modules}"/>
+		</exec>
+		<available file="${rebprojectdir}/installers/INTELLISCRIPTDVR/Release/Output/LogFiles/error" property="installshield_fail"/>
+		<fail if="installshield_fail" message="INTELLISCRIPTDVR installation InstallShield package generation FAILED!!!"/ -->
+
+		<exec executable="${ISCmdBld}" dir="${installers}">
+			<arg line="-p ISCONFIG.ism -y ${version} -a Release -r Output -o ${merge_modules}"/>
+		</exec>
+		<available file="${rebprojectdir}/installers/ISCONFIG/Release/Output/LogFiles/error" property="installshield_fail"/>
+		<fail if="installshield_fail" message="ISCONFIG installation InstallShield package generation FAILED!!!"/>
+		<exec executable="${ISSignTool}" 
+			  dir="${installers}/ISCONFIG/Release/Output/DiskImages/DISK1" 
+			  resultproperty="SigningReturnCode" 
+			  failonerror="false">
+			<arg line="verify /pa /v /tw setup.exe"/>
+		</exec>
+		<echo>SignTool.exe return code for ISConfig: ${SigningReturnCode}</echo>
+		<fail message="SignTool.exe exited non-zero">
+			<condition>
+				<not>
+					<equals arg1="${SigningReturnCode}" arg2="0"/>
+				</not>
+			</condition>
+		</fail>
+	</target>
+	<!-- ========== target : isconfigjar ========== -->
+	<target name="isconfigjar" depends="rmic" description="bins the isconfig.jar">
+		<antcall target="jar">
+			<param name="classes" value="isconfig_classes" />
+			<param name="jarname" value="isconfig.jar" />
+		</antcall>
+	</target>
+	<!-- ========== target : jar ========== -->
+	<target name="jar">
+		<delete file="${bin}/${jarname}" />
+		<jar jarfile="${bin}/${jarname}" basedir="${bin}">
+			<patternset refid="${classes}" />
+		</jar>
+	</target>
+	<!-- ========== target : jarwithclasspath ========== -->
+	<target name="jarwithclasspath">
+		<delete file="${bin}/${jarname}" />
+		<jar jarfile="${bin}/${jarname}" basedir="${bin}">
+			<patternset refid="${classes}" />
+			<manifest>
+				<attribute name="Class-Path" value="${manifest.classpath}" />
+			</manifest>
+		</jar>
+	</target>
+
+	<!-- ========== target : jars ========== -->
+	<target name="jars">
+		<antcall target="scribejar">
+		</antcall>
+		<antcall target="edtjar">
+		</antcall>
+		<antcall target="emonjar">
+		</antcall>
+		<!--antcall target="ebridgejar"> </antcall-->
+		<antcall target="isconfigjar">
+		</antcall>
+		<antcall target="promptApplicationJar">
+		</antcall>
+	</target>
+	<!-- ========== target : javadoc ========== -->
+	<target name="javadoc" description="creates Javadoc for the entire project.">
+		<mkdir dir="${javadoc.dest}"/>
+		<javadoc 
+    		sourcepath="${srcroot}" 
+    		destdir="${javadoc.dest}" 
+    		maxmemory="256m"
+    	/>
+	</target>
+	<!-- ========== target : junitgui ========== -->
+	<target name="junitgui" description="Start the JUnit test runner.">
+		<java classname="junit.swingui.TestRunner" maxmemory="256m"
+			 fork="true" spawn="true">
+			<classpath>
+				<pathelement path="${testbin}" />
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</java>
+	</target>
+	<!-- ========== target : promptApplicationJar ========== -->
+	<target name="promptApplicationJar" depends="rmic" description="bins the promptApplication.jar">
+		<property name="jar_name" value="promptApplication.jar" />
+		<delete file="${bin}/${jar_name}" />
+		<jar jarfile="${bin}/${jar_name}" basedir="${bin}">
+			<patternset refid="promptApplication_classes" />
+			<manifest>
+				<attribute name="Main-Class" value="com.eScription.isconfig.promptApplication.prompter.PromptApplication" />
+				<attribute name="Class-Path" value="lib/sqljdbc4-2.0.jar lib/javasvn.jar lib/mail.jar" />
+			</manifest>
+		</jar>
+		<copy file="${src}/${package}/isconfig/promptApplication/c_code/normalize.exe" todir="${bin}/c_code" />
+		<copy file="${src}/${package}/isconfig/promptApplication/c_code/wavutils.dll" todir="${bin}/c_code" />
+		<copy file="lib/sqljdbc4-2.0.jar" todir="${bin}/lib" />
+		<copy file="lib/javasvn.jar" todir="${bin}/lib" />
+		<copy file="lib/mail.jar" todir="${bin}/lib" />
+	</target>
+	<!-- ========== target : reall ========== -->
+	<target name="reall" depends="rtc_tasks,chk-version,clean,compile,jars,logmoverjar,installers">
+		<echo message="version is ${version}"/>
+	</target>
+	<!-- ========== target : svnupdate ========== -->
+	<target name="svnupdate">
+		<exec executable="svn" dir="${basedir}">
+			<arg line="up" />
+		</exec>
+	</target>
+	<!-- ========== target: generate_scribe_assembly_zip ========= -->
+	<target name="generate_scribe_assembly_zip">
+		<property name="versionDASH" value="version_${major}-${minor}-${patch}-${env.BUILD_NUMBER}"/>
+		<mkdir dir="${rebprojectdir}/scribe_assemblies/lib"/>
+		<mkdir dir="${rebprojectdir}/scribe_assemblies/conf"/>
+		<copy todir="${rebprojectdir}/scribe_assemblies/lib">
+			<fileset dir="${rebprojectdir}/lib">
+				<patternset refid="scribe_dependencies_libs"/>
+			</fileset>
+		</copy>
+		<copy todir="${rebprojectdir}/scribe_assemblies/conf">
+			<fileset dir="${rebprojectdir}/deployment/conf"/>
+		</copy>
+		<zip destfile="${rebprojectdir}/scribe-assembly-${major}.${minor}.${patch}-0.zip" basedir="${rebprojectdir}/scribe_assemblies"/>
+		<copy file="${rebprojectdir}/scribe-assembly-${major}.${minor}.${patch}-0.zip" todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/scribe-assembly-${major}.${minor}.${patch}-0.zip" todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}/${versionDASH}"/>
+	</target>
+	<!-- ========== target : publish ========== -->
+	<target name="publish">
+		<copy todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}">
+			<fileset dir="${rebprojectdir}/bin">
+				<include name="*.jar"/>
+				<exclude name="scribe.jar"/>
+			</fileset>
+		</copy>
+		<!--copy file="${rebprojectdir}/installers/EBRIDGE/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/EBRIDGE/${releasemajorminor}/${version}"/-->
+		<copy file="${rebprojectdir}/installers/EDT/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/EMON/${releasemajorminor}/${version}"/>
+		<!--copy file="${rebprojectdir}/installers/INTELLISCRIPTDVR/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/INTELLISCRIPTDVR/${releasemajorminor}/${version}"/-->
+		<copy file="${rebprojectdir}/installers/ISCONFIG/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/ISCONFIG/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/bin/scribe.jar" todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/bin/logmover.jar" todir="${nasPublishDir}/logmover/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/lib/Una2000.jar" todir="${nasPublishDir}/LineCount_Classes/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/bin/com/eScription/tools/LineCountGross.class" todir="${nasPublishDir}/LineCount_Classes/${releasemajorminor}/${version}"/>
+		<copy file="${rebprojectdir}/bin/com/eScription/tools/LineCountNet.class" todir="${nasPublishDir}/LineCount_Classes/${releasemajorminor}/${version}"/>
+		<echo message="${version}" file="${rebprojectdir}/last_successful_build.txt" />
+
+
+
+		<!--setup deployment directory-->
+		<property name="versionUnderscore" value="ver${major}_${minor}_${patch}"/>
+		<property name="versionDASH" value="version_${major}-${minor}-${patch}-${env.BUILD_NUMBER}"/>
+		<!--SCRIBE-->
+		<copy file="${rebprojectdir}/bin/scribe.jar" todir="${nasPublishDir}/scribe/${releasemajorminor}/${version}/${versionDASH}"/>
+		<!--EBRIDGE>
+		<copy file="${rebprojectdir}/installers/EBRIDGE/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/EBRIDGE/${releasemajorminor}/${version}/${versionUnderscore}"/-->
+		<!--INTELLISCRIPTDVR-->
+		<!--
+		<copy force="true" file="${rebprojectdir}/installers/INTELLISCRIPTDVR/Release/Output/DiskImages/DISK1/setup.exe" todir="${basedir}/installers/INTELLISCRIPTDVR/deploy_files/Web_Installers/InstData/Windows/VM"/>
+		<copy todir="${nasPublishDir}/INTELLISCRIPTDVR/${releasemajorminor}/${version}/${versionUnderscore}">
+			<fileset dir="${basedir}/installers/INTELLISCRIPTDVR/deploy_files"/>
+		</copy>
+		<copy file="${rebprojectdir}/installers/INTELLISCRIPTDVR/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/INTELLISCRIPTDVR/${releasemajorminor}/${version}/${versionUnderscore}"/>
+		-->
+		<!--ISCONFIG-->
+		<copy file="${rebprojectdir}/installers/ISCONFIG/Release/Output/DiskImages/DISK1/setup.exe" todir="${nasPublishDir}/ISCONFIG/${releasemajorminor}/${version}/${versionUnderscore}"/>
+		<!--EMON-->
+		<copy todir="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}">
+			<fileset dir="${basedir}/installers/EMON/deploy_files"/>
+		</copy>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					tofile="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}/update.exe"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}/EMon_Installers"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					tofile="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}/EMon_Installers/update.exe"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}/Web_Installers"/>
+		<copy file="${rebprojectdir}/installers/EMON/Release/Output/DiskImages/DISK1/setup.exe"
+					tofile="${nasPublishDir}/EMON/${releasemajorminor}/${version}/${versionUnderscore}/Web_Installers/update.exe"/>
+		<!--EDT-->
+		<copy todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}">
+			<fileset dir="${basedir}/installers/EDT/deploy_files">
+				<exclude name="**/Web_Installers/**"/>
+			</fileset>
+		</copy>
+		<copy file="${rebprojectdir}/installers/EDT/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}"/>
+		<copy file="${rebprojectdir}/bin/edt.jar"
+					todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}/EDT_Installers"/>
+		<copy file="${rebprojectdir}/installers/EDT/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}/EDT_Installers"/>
+		<!--copy file="${rebprojectdir}/bin/edt.jar"
+					todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}/Web_Installers"/ -->
+		<!--copy file="${rebprojectdir}/installers/EDT/Release/Output/DiskImages/DISK1/setup.exe"
+					todir="${nasPublishDir}/EDT/${releasemajorminor}/${version}/${versionUnderscore}/Web_Installers"/ -->
+		<!--logmover-->
+		<copy file="${rebprojectdir}/bin/logmover.jar" 
+					todir="${nasPublishDir}/logmover/${releasemajorminor}/${version}/${versionUnderscore}"/>
+	</target>
+
+	<!-- ========== target : artifactory_deploy ========== -->
+	<target name="artifactory_deploy">
+		<loadfile
+			property="latest_version"
+			srcFile="${rebprojectdir}/last_successful_build.txt"
+			failonerror="true"/>
+
+		<!-- Create Scribe Pom -->
+		<artifact:pom id="scribejarPom" groupid="com.nuance.escription" artifactid="scribe" version="${latest_version}" name="Scribe Jar Deployment" packaging="jar"/>
+		<artifact:writepom pomRefId="scribejarPom" file="${rebprojectdir}/buildpom_${latest_version}.xml"/>
+
+		<!-- Create Scribe Assembly Pom -->
+		<artifact:pom id="scribe-assemblyPom" groupid="com.nuance.escription" artifactid="scribe-assembly" version="${major}.${minor}.${patch}-0" name="Scribe Assembly Deployment" packaging="zip"/>
+		<artifact:writepom pomRefId="scribe-assemblyPom" file="${rebprojectdir}/assemblypom_${major}.${minor}.${patch}-0.xml"/>
+
+		<!-- Install Scribe Jar -->
+		<artifact:pom id="scribejarPom" file="${rebprojectdir}/buildpom_${latest_version}.xml"/>
+		<artifact:install file="${nasprojectdir}/scribe/${releasemajorminor}/${latest_version}/scribe.jar">
+			<pom refid="scribejarPom"/>
+		</artifact:install>
+
+		<!-- Install Scribe Assembly Zip -->
+		<artifact:pom id="scribe-assemblyPom" file="${rebprojectdir}/assemblypom_${major}.${minor}.${patch}-0.xml"/>
+		<artifact:install file="${nasprojectdir}/scribe/${releasemajorminor}/${latest_version}/scribe-assembly-${major}.${minor}.${patch}-0.zip">
+			<pom refid="scribe-assemblyPom"/>
+		</artifact:install>
+
+		<!-- Deploy Scribe Jar -->
+		<artifact:deploy file="${nasprojectdir}/scribe/${releasemajorminor}/${latest_version}/scribe.jar">
+			<remoteRepository url="${artifactory.url}">
+				<authentication username="${artifactory.user}" password="${artifactory.password}"/>
+			</remoteRepository>
+			<pom refid="scribejarPom" />
+		</artifact:deploy>
+
+		<!-- Deploy Scribe Assembly Zip -->
+		<artifact:deploy file="${nasprojectdir}/scribe/${releasemajorminor}/${latest_version}/scribe-assembly-${major}.${minor}.${patch}-0.zip">
+			<remoteRepository url="${artifactory.url}">
+				<authentication username="${artifactory.user}" password="${artifactory.password}"/>
+			</remoteRepository>
+			<pom refid="scribe-assemblyPom" />
+		</artifact:deploy>
+	</target>
+
+	<!-- ========== target : tag_scribe ========= -->
+	<target name="tag_scribe">
+		<exec dir="${scribetagdir}" executable="svn">
+			<arg line="update --username ${svn_username} --password ${svn_password}"/>
+		</exec>
+		<loadfile
+			property="latest_version"
+			srcFile="${the_workspace_base}/last_successful_build.txt"
+			failonerror="true"/>
+		<property name="updated_version" value="${latest_version}"/>
+		<propertyregex property="updated_version" override="true" input="${latest_version}" regexp="\." replace="-" casesensitive="false"/>
+		<propertyregex property="updated_version" override="true" input="${updated_version}" regexp="(\d+)-(\d+)-(\d+)-(\d+)" select="\1-\2-\3-\4" casesensitive="false"/>
+		<mkdir dir="${scribetagdir}/version_${updated_version}"/>
+		<copy file="${nasprojectdir}/scribe/${releasemajorminor}/${latest_version}/scribe.jar" todir="${scribetagdir}/version_${updated_version}"/>
+
+		<exec dir="${scribetagdir}" executable="svn">
+			<arg line="add  ${scribetagdir}/version_${updated_version}"/>
+		</exec>
+		<property name="add_message" value="'Adding ${latest_version} Scribe Jar'"/>
+		<exec dir="${scribetagdir}" executable="svn">
+			<arg line="commit --username ${svn_username} --password ${svn_password} -m ${add_message}"/>
+		</exec>
+	</target>
+
+
+	<!-- ========== target : run_clover_code_coverage_tests ========= -->
+	<target name="run_clover_code_coverage_tests">
+		<!-- Setup variables -->
+		<property name="cloverdir" value="${cloverdir}" />
+		<taskdef resource="cloverlib.xml" classpath="${cloverdir}/clover.jar"/>
+		<taskdef resource="cloverjunitlib.xml" classpath="${cloverdir}/clover.jar"/>
+		<clover-setup/>
+		<property name="save_coverage" value="${rebprojectdir}/coverage" />
+		<property name="clover.snapshot.file" value="${save_coverage}/clover.snapshot" />
+		<property name="src.tests" value="${rebprojectdir}/test"/>
+		<property name="reports.tests" value="${rebprojectdir}/test/com/eScription/reports"/>
+
+		<path id="lib_classpath">
+			<fileset dir="${lib_dir}">
+				<patternset refid="junit_libs" />
+			</fileset>
+		</path>
+		<property name="myclasspath" refid="lib_classpath"/>
+		<echo>"${myclasspath}"</echo>
+		<!-- Refresh JUnit Reports Directory -->
+		<delete dir="${reports.tests}"/>
+		<mkdir dir="${reports.tests}"/>
+
+		<!-- Build JUnit Tests -->
+		<javac srcdir="${src.tests}" verbose="true" destdir="${src.tests}">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</javac>
+
+		<!-- Run JUnit Tests -->
+		<junit 
+			fork="true"
+			printsummary="true" 
+			maxmemory="1024M" 
+			haltonfailure="false"
+			haltonerror="false"
+			failureproperty="tests_failures"
+			errorproperty="tests_errors">
+
+			<assertions>
+				<enable package="com.nuance.escription.distribution.services.target"/>
+				<enable package="com.nuance.escription.distribution.dal.target.dao"/>
+				<enable package="com.nuance.escription.distribution.dal.target.cache"/>
+			</assertions>
+			<classpath location="${bin}" />
+			<classpath refid="lib_classpath" />
+			<classpath location="${cloverdir}/clover.jar" />
+			<classpath location="${src.tests}" />
+			<formatter type="xml"/>
+			<batchtest todir="${reports.tests}">
+				<clover-optimized-testset snapshotfile="${clover.snapshot.file}">
+					<fileset dir="${src.tests}">
+						<include name="**/**/*Test.java"/>
+					</fileset>
+				</clover-optimized-testset>
+			</batchtest>
+		</junit>
+
+		<!-- Fail If Errors/Failure during JUnit Tests -->
+		<antcall target="check_for_junit_errors">
+		</antcall>
+		<fail if="tests_errors" message="One or more ERROR(s) occured during JUnit Test(s)!!!"/>
+
+		<clover-snapshot file="${clover.snapshot.file}" />
+
+		<clover-report>
+			<current outfile="${src.tests}/clover.xml" alwaysReport="true"/>
+		</clover-report>
+		<clover-html-report outdir="${src.tests}"/>
+	</target>
+
+	<!-- ========== target : check_for_junit_errors ========= -->
+	<target name="check_for_junit_errors" if="tests_failures">
+		<mkdir dir="${nasprojectdir}/Unit_Test_Errors" />
+		<zip destfile="${nasprojectdir}/Unit_Test_Errors/${version}_Unit_Test_Errors.zip">
+			<zipfileset dir="${reports.tests}"/>
+		</zip>
+		<echo message="One or more JUnit Test(s) FAILED!!! - Please see ${nasprojectdir}/Unit_Test_Errors/${version}_Unit_Test_Errors.zip for details..."/>
+		<fail />
+	</target>
+
+	<!-- ========== target : run_junit_tests ========= -->
+	<target name="run_junit_tests">
+		<!-- Setup variables -->
+		<property name="src.tests" value="${rebprojectdir}/test"/>
+		<property name="reports.tests" value="${rebprojectdir}/test/com/eScription/reports"/>
+		<path id="lib_classpath">
+			<fileset dir="${lib_dir}">
+				<patternset refid="junit_libs" />
+			</fileset>
+		</path>
+		<!-- Refresh JUnit Reports Directory -->
+		<delete dir="${reports.tests}"/>
+		<mkdir dir="${reports.tests}"/>
+
+		<!-- Build JUnit Tests -->
+		<javac srcdir="${src.tests}" verbose="true">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</javac>
+
+		<!-- Run JUnit Tests -->
+		<junit 
+			fork="true"
+			printsummary="true" 
+			maxmemory="1024M" 
+			haltonfailure="false"
+			haltonerror="false"
+			failureproperty="tests_failures"
+			errorproperty="tests_errors">
+
+			<classpath location="${bin}" />
+			<classpath refid="lib_classpath" />
+			<classpath location="${src.tests}" />
+			<formatter type="xml"/>
+			<batchtest todir="${reports.tests}">
+				<fileset dir="${src.tests}">
+					<include name="**/**/*Test.java"/>
+				</fileset>
+			</batchtest>
+		</junit>
+
+		<!-- Fail If Errors/Failure during JUnit Tests -->
+		<fail if="tests_failures" message="One or more JUnit Test(s) FAILED!!!"/>
+		<fail if="tests_errors" message="One or more ERROR(s) occured during JUnit Test(s)!!!"/>
+	</target>
+
+	<!-- ========== target : restats ========== -->
+	<target name="restats">
+		<exec executable="svn" output="${svnstatlog}">
+			<arg line="log --xml -v --stop-on-copy"/>
+		</exec>
+		<taskdef name="statsvn" classname="net.sf.statsvn.ant.StatSvnTask" classpath="${svnstatjar}" />
+		<statsvn path="${rebprojectdir}" log="${svnstatlog}" outputDir="${svnstatdir}" title="${svnstattitle}" viewvc="${svnstaturl}" />
+	</target>
+	<!-- ========== target : rmic ========== -->
+	<target name="rmic" unless="skipcompile" depends="compile">
+		<rmic base="${bin}" verify="true" excludes="deploy/**">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</rmic>
+	</target>
+	<!-- ========== target : runebridge ========== -->
+	<target name="runebridge" depends="rmic" description="Runs EBridge.">
+		<java classname="com.eScription.ebridge.EBridge" fork="true" maxmemory="256m" dir="lib">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</java>
+	</target>
+	<!-- ========== target : runemon ========== -->
+	<!-- rmic? -->
+	<target name="runemon" depends="rmic" description="Runs EMon">
+		<java classname="com.eScription.emon.EMon" fork="true" maxmemory="256m" dir="lib">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</java>
+	</target>
+	<!-- ========== target : runisconfig ========== -->
+	<!-- rmic? -->
+	<target name="runisconfig" depends="rmic" description="Run the ISConfiguration Manager.">
+		<java classname="com.eScription.isconfig.ISConfigurationManager" fork="true" maxmemory="256m" dir="lib">
+			<classpath>
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</java>
+	</target>
+	<!-- ========== target : runtest ========== -->
+	<target name="runtest" depends="test" if="testname" description="Runs a single unit test.">
+		<testng sourcedir="${test}" haltOnfailure="true">
+			<classpath>
+				<pathelement path="${testbin}" />
+				<pathelement path="${bin}" />
+				<pathelement path="${data}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+			<xmlfileset dir="${testconfig}" >
+				<include name="${testname}" />
+			</xmlfileset>
+		</testng>
+	</target>
+	<!-- ========== target : runtestbatch ========== -->
+	<target name="runtestbatch" depends="test" description="Runs the unit tests and">
+		<antcall target="runtestsuite">
+			<param name="suite" value="all.xml" />
+		</antcall>
+	</target>
+	<!-- ========== target : runtestheadless ========== -->
+	<target name="runtestheadless" depends="test">
+		<antcall target="runtestsuite">
+			<param name="suite" value="headless.xml" />
+		</antcall>
+	</target>
+	<!-- ========== target : runtestsuite ========== -->
+	<target name="runtestsuite" if="suite" depends="test" description="Runs a suite of unit tests.">
+		<testng sourcedir="${test}" haltOnfailure="true">
+			<classpath>
+				<pathelement path="${testbin}" />
+				<pathelement path="${bin}" />
+				<pathelement path="${data}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+			<xmlfileset dir="${testconfig}" includes="${suite}" />
+		</testng>
+	</target>
+	<!-- ========== target : scribejar ========== -->
+	<target name="scribejar" unless="skipcompile" depends="rmic, copyConfigFiles, copyXslFiles" description="bins scribe.jar">
+		<jar jarfile="${bin}/${scribe.jar}" basedir="${bin}">
+			<patternset refid="scribe_files" />
+			<!-- include jspell jar into scribe jar , where does this come from? -->
+			<zipfileset src="${jspell.jar}" />
+		</jar>
+	</target>
+	<!-- ========== target : logmoverjar ========== -->
+	<target name="logmoverjar" depends="rmic" description="bins logmover.jar">
+		<jar jarfile="${bin}/logMover.jar" basedir="${bin}">
+			<patternset refid="logmover_files" />
+			<manifest>
+				<attribute name="Main-Class" value="com.eScription.tools.runEnvironment.RunEnvironment"/>
+				<attribute name="Class-Path" value="lib/Una2000.jar lib/xml4j_1_1_16.jar" />
+			</manifest>
+		</jar>
+	</target>
+	<!-- ========== target : ServletController-jar ========== -->
+	<target name="ServletController-jar" depends="chk-version, rmic, getRevisionNumber" description="bins the ServletController.">
+		<property name="jarName" value="ServletController"/>
+		<genjar jarfile="${bin}/${jarName}_V9_rev${revision.number}.jar">
+			<class name="com.eScription.tools.ServletController"/>
+			<classpath>
+				<pathelement location="${bin}"/>
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</genjar>
+	</target>
+	<!-- ========== target : servletlocationdisplay ========== -->
+	<target name="servletlocationdisplay" depends="rmic" description="bins the ServletLocationDisplay JAR.">
+		<genjar jarfile="${bin}/servletLoctionDisplay.jar">
+			<class name="com.eScription.tools.ServletLocationDisplay" />
+			<classpath>
+				<pathelement location="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+			<resource file="SQLServers.txt" />
+		</genjar>
+	</target>
+	<!-- ========== target : test ========== -->
+	<target name="test" depends="rmic">
+		<!-- Compile the tests -->
+		<mkdir dir="${testbin}" />
+		<javac srcdir="${test}" debug="on" destdir="${testbin}">
+			<classpath>
+				<pathelement path="${test}" />
+				<pathelement path="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</javac>
+	</target>
+	<!-- ========== target : TestDialer_standalone ========== -->
+	<target name="TestDialer_standalone" depends="rmic" description="bins a jar of the TestDialer.">
+		<genjar jarfile="${bin}/TestDialer.jar">
+			<class name="com.eScription.emon.testDialer.prev9.TestDialer" />
+			<class name="com.microsoft.sqlserver.jdbc.SQLServerDriver" />
+			<classpath>
+				<pathelement location="${bin}" />
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+			<manifest>
+				<attribute name="Main-Class" value="com.eScription.emon.testDialer.prev9.TestDialer" />
+			</manifest>
+		</genjar>
+	</target>
+	<!-- ========== target : WebContentController-jar ========== -->
+	<target name="WebContentController-jar" depends="chk-version, rmic, getRevisionNumber" description="bins the WebContentController.">
+		<property name="jarName" value="WebContentController"/>
+		<genjar jarfile="${bin}/${jarName}_rev${revision.number}.jar">
+			<!-- why no V9_rev  -->
+			<class name="com.eScription.tools.WebContentController"/>
+			<class name="com.eScription.tools.NetScriptInstaller"/>
+			<class name="com.inet.tds.TdsDriver"/>
+			<classpath>
+				<pathelement location="${bin}"/>
+				<fileset dir="${lib_dir}">
+					<patternset refid="libs" />
+				</fileset>
+			</classpath>
+		</genjar>
+	</target>
+
+	<target name="-getservletname" unless="servletname">
+		<input addproperty="servletname" defaultvalue="scribe" message="{message}"/>
+	</target>
+
+	<target name="jrun4start" depends="jrun4deploy"
+		description="starts jrun4 server, can start multiple deployment packages, though each gets its own servlet container instance">
+		<!-- get servlet(s) name -->
+		<antcall target="-getservletname">
+			<param name="message" value="What are the servlet name(s) (space separated)?" />
+		</antcall>
+		<exec executable="${jrun4home}/bin/jrun">
+			<arg value="-config"/>
+			<arg value="${test}/resources/deploy/jrun4/conf/jvm.config"/>
+			<arg value="-start"/>
+			<arg line="${servletname}"/>
+		</exec>
+	</target>
+
+	<target name="jrun4start-debug" depends="jrun4deploy"
+		    description="starts jrun4 in remote suspended debug mode; only a single deployment package at a time is supported">
+		<!-- get the servlet name -->
+		<antcall target="-getservletname">
+			<param name="message" value="What is the servlet name?" />
+		</antcall>
+		<exec executable="${jrun4home}/bin/jrun">
+			<arg value="-config"/>
+			<arg value="${test}/resources/deploy/jrun4/conf/jvm-debug-${servletname}.config"/>
+			<arg value="-start"/>
+			<arg value="${servletname}"/>
+		</exec>
+	</target>
+
+	<target name="jrun4start-no-compile">
+		<property name="skipcompile" value="true"/>
+		<antcall target="jrun4start"/>
+	</target>
+
+	<target name="jrun4start-debug-no-compile">
+		<property name="skipcompile" value="true"/>
+		<antcall target="jrun4start-debug"/>
+	</target>
+
+	<target name="jrun4stop"
+		    description="stops jrun4 server">
+		<!-- get servlet(s) name -->
+		<antcall target="-getservletname">
+			<param name="message" value="What are the servlet name(s) (space separated)?" />
+		</antcall>
+		<exec executable="${jrun4home}/bin/jrun">
+			<arg value="-config"/>
+			<arg value="${test}/resources/deploy/jrun4/conf/jvm.config"/>
+			<arg value="-stop"/>
+			<arg line="${servletname}"/>
+		</exec>
+	</target>
+
+	<target name="jrun4deploy-prepare"
+		    description="copies *.property to *.properties-local and *.xml to *.xml-local files so that they can be customized for individual's environment">
+		<copy todir="${test}/resources/deploy/jrun4" verbose="true">
+			<fileset dir="${test}/resources/deploy/jrun4" includes="*.properties"/>
+			<globmapper from="*.properties" to="*.properties-local"/>
+		</copy>
+		<copy todir="${test}/resources/deploy/jrun4" verbose="true">
+			<fileset dir="${test}/resources/deploy/jrun4" includes="*.xml"/>
+			<globmapper from="*.xml" to="*.xml-local"/>
+		</copy>
+		<!-- get the servlet name -->
+		<antcall target="-getservletname">
+			<param name="message" value="What is the servlet name?" />
+		</antcall>
+		<!-- resolve web.xml parameters first from the local file -->
+		<property file="${test}/resources/deploy/jrun4/${servletname}.properties-local" prefix="${servletname}."/>
+		<propertyselector property="properties.list" delimiter="," match="${servletname}.([\S]+)" />
+		<echo message="properties.list = ${properties.list}"/>
+	</target>
+
+	<target name="jrun4deploy" depends="scribejar, jrun4deploy-prepare" 
+		    description="creates a jrun4 deployment package and alters local jrun4 installation to point at this package">
+
+		<echo>Copying file to the ${jrun4home}/servers/lib/ directory</echo>
+		<copy file="${lib_dir}/log4j-1.2.17.jar" todir="${jrun4home}/servers/lib/" overwrite="false"/>
+		<!-- copy standard deployment package under servlet name -->
+		<copy todir="${deploy}/${servletname}" verbose="true">
+			<fileset dir="${test}/resources/deploy/jrun4/package"/>
+		</copy>
+		<!-- copy servlet stuff -->
+		<copy file="${bin}/scribe.jar" todir="${deploy}/${servletname}/default-ear/default-war/WEB-INF/lib"
+			  verbose="true"/>
+		<!-- copy library dependencies -->
+		<copy todir="${deploy}/${servletname}/default-ear/default-war/WEB-INF/lib" verbose="true">
+			<fileset dir="lib" >
+				<patternset refid="scribe_dependencies_libs"/>
+			</fileset>
+		</copy>
+		<!-- copy web.xml -->
+		<available file="${test}/resources/deploy/jrun4/${servletname}.xml-local" property="web.xml.local.present"/>
+		<antcall target="-copy-web-xml"/>
+		<antcall target="-copy-web-xml-local"/>
+		<!-- perform template names with values substitution -->
+		<foreach list="${properties.list}" inheritall="true" delimiter="," param="propertyName" target="-set-param-web-xml"/>
+
+		<!-- copy jvm debug config file -->
+		<copy file="${test}/resources/deploy/jrun4/conf/jvm-debug.config"
+		      tofile="${test}/resources/deploy/jrun4/conf/jvm-debug-${servletname}.config"
+		      overwrite="true"
+		      verbose="true"/>
+
+		<!-- substitute ${servletname}.jvmPort varible with its value in ${servletname}.config -->
+		<antcall target="-substitute">
+			<param name="fileName" value="${test}/resources/deploy/jrun4/conf/jvm-debug-${servletname}.config"/>
+			<param name="propName" value="${servletname}.jvmPort"/>
+			<param name="propPrefix" value="${servletname}."/>
+			<param name="propStartToken" value="{"/>
+			<param name="propEndToken" value="}"/>
+		</antcall>
+
+		<!-- copy jndi.properties config file -->
+		<copy file="${test}/resources/deploy/jrun4/package/SERVER-INF/jndi.properties"
+		      tofile="${deploy}/${servletname}/SERVER-INF/jndi.properties"
+		      overwrite="true"
+		      verbose="true"/>
+		<!-- substitute ${servletname}.jndiPort varible with its value in jndi.properties -->
+		<antcall target="-substitute">
+			<param name="fileName" value="${deploy}/${servletname}/SERVER-INF/jndi.properties"/>
+			<param name="propName" value="${servletname}.jndiPort"/>
+			<param name="propPrefix" value="${servletname}."/>
+			<param name="propStartToken" value="{"/>
+			<param name="propEndToken" value="}"/>
+		</antcall>
+
+		<!-- save original servers.xml -->
+		<available file="${jrun4home}/lib/servers.original.xml" property="servers.xml.original.present"/>
+		<antcall target="-backup-servers-xml"/>
+		<!-- modify servers.xml to insert/replace <server> element content for the servlet being deployed -->
+		<xslt style="${test}/resources/deploy/jrun4/xsl/servers.xsl" 
+		      in="${jrun4home}/lib/servers.original.xml" 
+			  out="${jrun4home}/lib/servers.xml"
+			  force="true">
+			<param name="serverName" expression="${servletname}"/>
+			<param name="serverPath" expression="${deploy}/${servletname}"/>
+			<xmlcatalog id="dtd" classpath="${jrun4home}/lib/jrun.jar">
+				<dtd 
+			      publicId="-//Macromedia, Inc.//DTD servers 4.0//EN" 
+			      location="META-INF/servers.dtd"/>
+			</xmlcatalog>
+		</xslt>
+		<!-- modify jrun.xml to replace 
+		service[@class='jrun.servlet.http.WebService']/attribute[@name='port'] for the servlet being deployed -->
+		<propertycopy name="serverPortValue" from="${servletname}.serverPort" />
+		<propertycopy name="proxyPortValue" from="${servletname}.proxyPort" />
+		<xslt style="${test}/resources/deploy/jrun4/xsl/jrun.xsl" 
+			  in="${test}/resources/deploy/jrun4/package/SERVER-INF/jrun.xml" 
+        	  out="${deploy}/${servletname}/SERVER-INF/jrun.xml"
+        	  force="true">
+			<param name="serverPortValue" expression="${serverPortValue}"/>
+			<param name="proxyPortValue" expression="${proxyPortValue}"/>
+			<xmlcatalog id="dtd" classpath="${jrun4home}/lib/jrun.jar">
+				<dtd publicId="-//Macromedia, Inc.//DTD jrun-server 4.0//EN"
+				       location="META-INF/jrun-server.dtd"/>
+			</xmlcatalog>
+		</xslt>
+	</target>
+
+	<target name="-set-param-web-xml">
+		<antcall target="-substitute">
+			<param name="fileName" value="${deploy}/${servletname}/default-ear/default-war/WEB-INF/web.xml"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="${servletname}."/>
+			<param name="propStartToken" value="{"/>
+			<param name="propEndToken" value="}"/>
+		</antcall>
+	</target>
+
+	<target name="-substitute">
+		<propertycopy name="propertyValue" from="${propName}" />
+		<!--echo message="propName = ${propName}; value = ${propertyValue}"/-->
+		<propertyregex property="propertyNameLessSuffix"
+		               input="${propName}"
+					   regexp="${propPrefix}([\S]+)"
+			           select="\1"
+			           casesensitive="false" />
+		<!--echo message="propertyNameLessSuffix = ${propertyNameLessSuffix}; value = ${propertyValue}"/-->
+		<!-- find property name ${propertyNameLessSuffix} in ${fileName} 
+		     and replace it with ${propertyValue} -->
+		<replace file="${fileName}" 
+			     token="${propStartToken}${propertyNameLessSuffix}${propEndToken}" 
+			     value="${propertyValue}"/>
+	</target>
+
+	<target name="-backup-servers-xml" unless="servers.xml.original.present">
+		<copy file="${jrun4home}/lib/servers.xml" 
+		      tofile="${jrun4home}/lib/servers.original.xml"
+	    	  verbose="true"/>
+	</target>
+
+	<target name="-copy-web-xml" unless="web.xml.local.present">
+		<copy file="${test}/resources/deploy/jrun4/${servletname}.xml" 
+			  tofile="${deploy}/${servletname}/default-ear/default-war/WEB-INF/web.xml"
+			  overwrite="true"
+		      verbose="true"/>
+	</target>
+
+	<target name="-copy-web-xml-local" if="web.xml.local.present">
+		<copy file="${test}/resources/deploy/jrun4/${servletname}.xml-local" 
+			  tofile="${deploy}/${servletname}/default-ear/default-war/WEB-INF/web.xml"
+			  overwrite="true"
+			  verbose="true"/>
+	</target>
+
+	<target name="-db-check-required-user-properties">
+		<fail message="Please set dbscriptspath property value in ${project_dir}/test/resources/db/connection.properties-local to the location where template SQL scripts are located. SQL scripts can be checkout from http://cvshost.hq.escription.com/repos/database/{version} svn repository where {version} could be 9/0/0_BR"
+		      unless="dbscriptspath"/>
+		<fail message="Please set databaseDataPath property value in ${project_dir}/test/resources/db/scripts.properties-local which is the base directory where the SQL Server data files will be stored" 
+	    	  unless="sql.databaseDataPath"/>
+		<fail message="Please set databaseLogPath property value in ${project_dir}/test/resources/db/scripts.properties-local which is the base directory where the SQL Server log files will be stored" 
+              unless="sql.databaseLogPath"/>
+		<fail message="dbscriptspath property points to a directory that does not exists. Please provide a path that exists and contains SQL template files">
+			<condition>
+				<not>
+					<available file="${dbscriptspath}" type="dir"/>
+				</not>
+			</condition>
+		</fail>
+		<mkdir dir="${sql.databaseDataPath}"/>
+		<mkdir dir="${sql.databaseLogPath}"/>
+		<available file="${sql.databaseDataPath}" type="dir" property="sql.databaseDataPath.exists" />
+		<available file="${sql.databaseLogPath}" type="dir" property="sql.databaseLogPath.exists" />
+		<fail message="databaseDataPath property does not point to an actual directory" unless="sql.databaseDataPath.exists"/>
+		<fail message="databaseLogPath property does not point to an actual directory" unless="sql.databaseLogPath.exists"/>
+	</target>
+
+	<target name="-db-properties-prepare"
+		    description="copies *.property to *.properties-local files so that they can be customized for individual's environment">
+		<copy todir="${test}/resources/db" verbose="true">
+			<fileset dir="${test}/resources/db" includes="*.properties"/>
+			<globmapper from="*.properties" to="*.properties-local"/>
+		</copy>
+		<copy file="${test}/resources/db/extras-scripts.lst" tofile="${test}/resources/db/extras-scripts.lst-local" verbose="true"/>
+		<mkdir dir="${scripts}"/>
+		<property file="${test}/resources/db/connection.properties-local"/>
+		<property file="${test}/resources/db/scripts.properties-local" prefix="sql."/>
+		<propertyselector property="sqlpropertieslist" delimiter="," match="sql.([\S]+)" />
+		<antcall target="-db-check-required-user-properties"/>
+	</target>
+
+	<target name="db-drop-servlet-master" depends="-db-properties-prepare"
+		    description="Drops servlet master database">
+		<exec executable="osql" output="${scripts}/${sql.environment}_servletMaster_DropDB.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${dbscriptspath}/DB_ServletMaster/servletMaster_DropDB.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-drop-common" depends="-db-properties-prepare"
+		    description="Drops common database">
+		<exec executable="osql" output="${scripts}/${sql.environment}_commonData_DropDB.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${dbscriptspath}/DB_CommonData/commonData_DropDB.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-drop-institution" depends="-db-properties-prepare"
+		    description="Drops institution databas">
+		<copy todir="${scripts}" file="${dbscriptspath}/DB_Institution/DB_Institution_DropDB.sql"/>
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-drop-institution-db"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_institution_DropDB.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/DB_Institution_DropDB.sql"/>
+		</exec>
+	</target>
+	<target name="db-drop" depends="db-drop-institution, db-drop-servlet-master, db-drop-common"
+		    description="Drops common, servlet master and institution databases">
+	</target>
+
+	<target name="db-create-common" depends="-db-properties-prepare"
+		    description="Creates common database">
+		<antcall target="-db-parse-scripts-file-list-and-concat">
+			<param name="dbbasedir" value="${dbscriptspath}"/>
+			<param name="scriptsfilename" value="${dbscriptspath}/DB_CommonData/commonData_${sql.environment}_scriptList.dat" />
+			<param name="scriptsoutputfilename" value="${scripts}/${sql.environment}_commonData_Baseline.sql"/>
+		</antcall>
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-commonData"/>
+		<echo message="Running: osql -S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_commonData_Baseline.sql"/>
+		<echo message="Standard output redirected to log file: ${scripts}/${sql.environment}_commonData_Baseline.sql.log"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_commonData_Baseline.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_commonData_Baseline.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-create-servlet-master" depends="-db-properties-prepare"
+		    description="Creates servlet master database">
+		<antcall target="-db-parse-scripts-file-list-and-concat">
+			<param name="dbbasedir" value="${dbscriptspath}"/>
+			<param name="scriptsfilename" value="${dbscriptspath}/DB_ServletMaster/servletMaster_${sql.environment}_scriptList.dat" />
+			<param name="scriptsoutputfilename" value="${scripts}/${sql.environment}_servletMaster_Baseline.sql"/>
+		</antcall>
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-servletMaster"/>
+		<echo message="Running: osql -S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_servletMaster_Baseline.sql"/>
+		<echo message="Standard output redirected to log file: ${scripts}/${sql.environment}_servletMaster_Baseline.sql.log"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_servletMaster_Baseline.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_servletMaster_Baseline.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-create-institution" depends="-db-properties-prepare"
+		    description="Creates institution database">
+		<antcall target="-db-parse-scripts-file-list-and-concat">
+			<param name="dbbasedir" value="${dbscriptspath}"/>
+			<param name="scriptsfilename" value="${dbscriptspath}/DB_Institution/DB_Institution_${sql.environment}_scriptList.dat" />
+			<param name="scriptsoutputfilename" value="${scripts}/${sql.environment}_institution_Baseline.sql"/>
+		</antcall>
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-institution"/>
+		<echo message="Running: osql -S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_institution_Baseline.sql"/>
+		<echo message="Standard output redirected to log file: ${scripts}/${sql.environment}_institution_Baseline.sql.log"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_institution_Baseline.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_institution_Baseline.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-create" depends="db-create-common, db-create-servlet-master, db-create-institution"
+		    description="Creates common, servlet master and institution databases">
+	</target>
+
+	<target name="db-load-default-data" depends="-db-properties-prepare, jrun4deploy-prepare"
+		    description="Loads default data into institution database">
+		<antcall target="-db-parse-scripts-file-list-and-concat">
+			<param name="dbbasedir" value="test/resources/db/scripts/default"/>
+			<param name="scriptsfilename" value="test/resources/db/default-scripts.lst" />
+			<param name="scriptsoutputfilename" value="${scripts}/${sql.environment}_defaultData.sql"/>
+		</antcall>
+		<!-- get the servlet name -->
+		<antcall target="-getservletname">
+			<param name="message" value="What is the servlet name?" />
+		</antcall>
+		<!-- resolve web.xml parameters first from the local file -->
+		<property file="${test}/resources/deploy/jrun4/${servletname}.properties-local" prefix="${servletname}."/>
+		<propertyselector property="properties.list" delimiter="," match="${servletname}.([\S]+)" />
+
+		<!-- perform template names with values substitution -->
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-sql-defaultData"/>
+		<foreach list="${properties.list}" inheritall="true" delimiter="," param="propertyName" target="-set-param-web-defaultData"/>
+
+		<echo message="Running: osql -S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_defaultData.sql"/>
+		<echo message="Standard output redirected to log file: ${scripts}/${sql.environment}_defaultData.sql.log"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_defaultData.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_defaultData.sql"/>
+		</exec>
+	</target>
+
+	<target name="db-load-extras-data" depends="-db-properties-prepare"
+		    description="Loads exta data into institution database">
+		<antcall target="-db-parse-scripts-file-list-and-concat">
+			<param name="dbbasedir" value="${dbextrascriptsbasedir}"/>
+			<param name="scriptsfilename" value="test/resources/db/extras-scripts.lst-local" />
+			<param name="scriptsoutputfilename" value="${scripts}/${sql.environment}_extrasData.sql"/>
+		</antcall>
+		<foreach list="${sqlpropertieslist}" inheritall="true" delimiter="," param="propertyName" target="-set-param-extrasData"/>
+		<echo message="Running: osql -S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_extrasData.sql"/>
+		<echo message="Standard output redirected to log file: ${scripts}/${sql.environment}_extrasData.sql.log"/>
+		<exec executable="osql" output="${scripts}/${sql.environment}_extrasData.sql.log">
+			<arg line="-S ${dbhost}\${dbinstancename} -E -i ${scripts}/${sql.environment}_extrasData.sql"/>
+		</exec>
+	</target>
+
+	<target name="-db-parse-scripts-file-list">
+		<script language="javascript" src="${test}/resources/db/parser.js"/>
+	</target>
+
+	<target name="-db-parse-scripts-file-list-and-concat">
+		<script language="javascript" src="${test}/resources/db/parser-concat.js"/>
+	</target>
+
+	<target name="-set-param-commonData">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_commonData_Baseline.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-servletMaster">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_servletMaster_Baseline.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-institution">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_institution_Baseline.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-sql-defaultData">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_defaultData.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-web-defaultData">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_defaultData.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="${servletname}."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-extrasData">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/${sql.environment}_extrasData.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+
+	<target name="-set-param-drop-institution-db">
+		<antcall target="-substitute">
+			<param name="fileName" value="${scripts}/DB_Institution_DropDB.sql"/>
+			<param name="propName" value="${propertyName}"/>
+			<param name="propPrefix" value="sql."/>
+			<param name="propStartToken" value="$("/>
+			<param name="propEndToken" value=")"/>
+		</antcall>
+	</target>
+	<!-- ========== target: post_build_deliver ========= -->
+	<target name="post_build_deliver" unless = "isAPersonalBuild" >
+		<exec executable="${jbe_path}\jbe.exe">
+			<arg line="-repository ${repositoryAddress} -userId ${userId} -passwordFile ${passwordFile} -engineId ${build_engine_ID} -buildResultUUID ${buildResultID} -participants com.ibm.team.build.autoDeliver -noComplete -verbose"/>
+		</exec>
+	</target>
+</project>
+
+

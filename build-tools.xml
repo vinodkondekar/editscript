@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ====================================================================== 
+     Apr 22, 2009 9:04:37 AM                                                        
+
+     Tools    
+     Builds the executable jars of the tools.
+                   
+     Tim_Hennekey                                                                
+     ====================================================================== -->
+<project name="Tools" default="deficiency-reporter">
+    <description>
+        Builds the executable jars of the tools.
+    </description>
+    <property name="bin.dir" location="${basedir}/bin" />
+    <property name="dist.dir" location="${basedir}/dist" />
+    <property name="deficiency.jar" value="deficiency-reporter.jar" />
+	<property name="personPerf.jar" value="person-performance-tool.jar" />
+
+    <!-- ================================= 
+          target: deficiency-reporter 
+         ================================= -->
+    <target name="deficiency-reporter" depends="compile" description="Builds the executable ">
+        <jar destfile="${dist.dir}/${deficiency.jar}">
+            <manifest>
+                <attribute name="Main-class" value="com.eScription.tools.DeficiencyReporter" />
+            </manifest>
+            <fileset dir="${bin.dir}">
+                <include name="com/eScription/dal/datamanagement/LastUpdatedDataFailedException*" />
+                <include name="com/eScription/data/dao/BaseDAO*" />
+                <include name="com/eScription/data/dao/reports/*" />
+                <include name="com/eScription/data/dao/util/DAOUtils*" />
+                <include name="com/eScription/data/MediaType*" />
+                <include name="com/eScription/data/security/ScribeSecurityConstants*" />
+                <include name="com/eScription/reports/deficiency/model/*" />
+                <include name="com/eScription/reports/deficiency/model/dictation/jaxb/*" />
+                <include name="com/eScription/scribeConnect/*" />
+                <include name="com/eScription/scribe/SpeakerDescription*" />
+                <include name="com/eScription/scribe/DBAccess*" />
+                <include name="com/eScription/scribe/DBConnection*" />
+                <include name="com/eScription/scribe/DBController*" />
+                <include name="com/eScription/scribe/DBRowSet*" />
+                <include name="com/eScription/scribe/DBRow*" />
+                <include name="com/eScription/scribe/Poolable*" />
+                <include name="com/eScription/scribe/Pool*" />
+                <include name="com/eScription/scribe/services/InstitutionDescriptionServiceException*"/>
+                <include name="com/eScription/scribe/services/ServiceException*"/>
+                <include name="com/eScription/tools/AgeProfile*" />
+                <include name="com/eScription/tools/DeficiencyReport*" />
+                <include name="com/eScription/tools/SBDatabaseAccess*" />
+                <include name="com/eScription/tools/SBLocalURL*" />
+                <include name="com/eScription/util/Constants*" />
+                <include name="com/eScription/util/Trace*" />
+                <include name="com/eScription/util/XMLDocument*" />
+                <include name="com/eScription/util/datetime/DatetimeException*" />
+            </fileset>
+        </jar>
+    </target>
+	
+	<target name="person-performance-tool" depends="compile" description="Builds the executable ">
+	        <jar destfile="${dist.dir}/${personPerf.jar}">
+	            <manifest>
+	                <attribute name="Main-class" value="com.eScription.tools.personperftool.PersonPerformanceFillTool" />
+	            </manifest>
+	            <fileset dir="${bin.dir}">
+	                <include name="com/eScription/tools/SBDatabaseAccess*" />
+	            	<include name="com/eScription/tools/SBLocalURL*" />
+					<include name="com/eScription/scribe/DBAccess*" /> 
+					<include name="com/eScription/scribe/DBConnection*" /> 
+					<include name="com/eScription/scribe/DBController*" /> 
+					<include name="com/eScription/scribe/DBRowSet*" />
+					<include name="com/eScription/scribe/DBRow*" />
+	            	<include name="com/eScription/scribe/Pool*" />
+	            	<include name="com/eScription/tools/personperftool/*"/>
+	            	<include name="com/eScription/tools/personperftool/bean/*" />
+	            	<include name="com/eScription/tools/personperftool/dao/*" />
+	            </fileset>
+	        </jar>
+	    </target>
+
+    <!-- - - - - - - - - - - - - - - - - - 
+          target: compile                      
+         - - - - - - - - - - - - - - - - - -->
+    <target name="compile">
+        <ant antfile="build.xml" target="compile" />
+        <mkdir dir="${dist.dir}" />
+    </target>
+
+</project>

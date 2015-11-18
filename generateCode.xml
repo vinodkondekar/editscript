@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<project name="jaxb2 generated classes" default="help">
+
+	<!-- ====================================================================== -->
+	<target name="help" description="usage page">
+		<echo message="NAME" />
+		<echo message="  generateCode.xml" />
+		<echo message="USAGE" />
+		<echo message="  ant -f generatedCode.xml [target]" />
+		<echo message="DESCRIPTION" />
+		<echo message="  this ant file generates JAXB model classes based XML schemas" />
+		<echo message="OPTIONS" />
+		<echo message="-Dschema_file file path location to the schema file" />
+		<echo message="-Dbindings_file file path location to the bindings file" />
+		<echo message="EXAMPLES" />
+		<echo message="  ant help      (this usage page)" />
+		<echo message="  generate with binding file:" />
+		<echo
+            message="  ant -f generateCode.xml generate_classes -Dbinding_file=&quot;src\com\eScription\data\model\response1310\jaxb\bindings\bindings.xjb&quot; -Dschema_file=&quot;src\com\eScription\scribe\Response1310.xsd&quot;" />
+		<echo message="  generate without binding file:" />
+		<echo
+            message="  ant -f generateCode.xml generate_classes -Dschema_file=&quot;src\com\eScription\scribe\Response1310.xsd&quot;" />
+	</target>
+	<!-- ======================================================================== -->
+	<!-- global -->
+	<!-- this classpath is used for xjc ant task -->
+	<path id="xjc.classpath">
+		<fileset dir="${basedir}/lib/codeGen/">
+			<include name="jaxb-impl-2.2.4-1.jar" />
+			<include name="jaxb-xjc-2.2.4-1.jar" />
+			<include name="jaxb2-basics-ant-0.6.2.jar" />
+			<include name="jaxb2-basics-annotate-0.6.4.jar" />
+			<include name="jaxb2-basics-0.6.2.jar" />
+			<include name="jaxb2-basics-tools-0.6.2.jar" />
+			<include name="jaxb2-basics-runtime-0.6.2.jar" />
+			<include name="commons-lang-2.4.jar" />
+			<include name="commons-logging-1.1.1.jar" />
+			<include name="annox-0.5.1.jar" />
+			
+		</fileset>
+	</path>
+
+	<target name="generate_classes">
+		<echo message="binding_file=${binding_file}" />
+		<echo message="schema_file=${schema_file}" />
+		<taskdef name="xjc" classname="org.jvnet.jaxb2_commons.xjc.XJC2Task">
+			<!-- XJC2 Task classpath -->
+			<classpath refid="xjc.classpath" />
+		</taskdef>
+		<xjc destdir="${basedir}/src" extension="true">
+			<arg line="-Xannotate" />
+				<binding dir="${basedir}/">
+				<include name="${binding_file}" />
+			</binding>
+			<schema dir="${basedir}/">
+				<include name="${schema_file}" />
+			</schema>
+		</xjc>
+	</target>
+
+	<target name="generate_classes_using_plugins">
+		<echo message="binding_file=${binding_file}" />
+		<echo message="schema_file=${schema_file}" />
+		<taskdef name="xjc" classname="org.jvnet.jaxb2_commons.xjc.XJC2Task">
+			<!-- XJC2 Task classpath -->
+			<classpath>
+				<path refid="xjc.classpath"/>
+			</classpath>
+		</taskdef>
+		<xjc destdir="${basedir}/src" extension="true" >
+			<arg line="-Xinheritance" />
+			<arg line="-Xannotate" />
+			<binding dir="${basedir}/">
+				<include name="${binding_file}" />
+			</binding>
+			<schema dir="${basedir}/">
+				<include name="${schema_file}" />
+			</schema>
+		</xjc>
+	</target>
+</project>

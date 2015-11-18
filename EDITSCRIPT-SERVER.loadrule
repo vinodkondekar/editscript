@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scm:sourceControlLoadRule version="1" xmlns:scm="http://com.ibm.team.scm">
+    <parentLoadRule>
+        <component name="EDITSCRIPT-SERVER"/>
+        <parentFolder repositoryPath="/installers"/>
+        <sandboxRelativePath pathPrefix="/installers"/>
+    </parentLoadRule>
+    <parentLoadRule>
+        <component name="INSTALLERS-TOOLS"/>
+        <parentFolder repositoryPath="/tools"/>
+        <sandboxRelativePath pathPrefix="/installers/tools"/>
+    </parentLoadRule>
+        <parentLoadRule>
+        <component name="EDITSCRIPT-SERVER"/>
+        <parentFolder repositoryPath="/"/>
+        <exclude>
+        	<filter name="installers"/>
+        </exclude>
+        <sandboxRelativePath pathPrefix="/"/>
+    </parentLoadRule>
+</scm:sourceControlLoadRule>

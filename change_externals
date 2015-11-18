@@ -1,0 +1,51 @@
+#!/bin/bash
+cat > .externals.new << END_EXTERNALS
+# You must use the :
+#	change_externals script to modify the svn:externals!!!
+#	commit_new_externals script to commit the svn:externals!!!
+# 1) edit   'vi change_externals'
+# 2) run    './change_externals'
+# 3) test   'svn update' and build
+# 4) commit './commit_new_externals'
+#    allows tracking of changes to svn:externals via 'svn log change_externals'.
+#    example:  dotnet    http://cvshost.hq.escription.com/repos/dotnet/9/0/0_BR
+installers/tools http://cvshost.hq.escription.com/repos/installers/tools
+END_EXTERNALS
+
+# set svn:externals on current directory.
+dos2unix  change_externals .externals.new  > junk.txt 2>&1
+cat .externals.new | grep -v "#" > .externals.set
+svn propset svn:externals -F .externals.set .
+
+# check to see if the property is actually different.
+if [ $(svn st -N .|grep -c '^ M     \.$') == 0 ]; then
+    echo "property is no different than the version in the repository."
+    rm -f .externals.prev .externals.new .externals.set
+    rm -f commit_new_externals
+    exit 1
+fi
+svn propget -r HEAD svn:externals . > .externals.prev
+dos2unix  .externals.new .externals.prev  > junk.txt 2>&1
+echo "changed lines:"
+diff -w -u .externals.prev .externals.new|grep '^+'|grep -v '^+++'
+echo 
+echo "run 'svn update' and build to test the new properties before committing."
+echo
+# create a check-in command and script.
+echo -n 'svn commit -N ./ change_externals -m "' > commit_new_externals
+diff .externals.prev .externals.new | grep '^>' | grep -v '#' | xargs echo -n "updated svn:externals --" >> commit_new_externals
+echo '"' >> commit_new_externals
+chmod +x commit_new_externals
+echo "run './commit_new_externals' to finalize and commit the change."
+echo
+# clean up temporary files.
+rm -f .externals.prev .externals.new .externals.set junk.txt
+
+
+
+
+
+
+
+
+
